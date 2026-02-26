@@ -3,12 +3,13 @@ package web_fetch
 import (
 	"context"
 	"encoding/json"
-	"github.com/sipeed/picoclaw/pkg/tools/common"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sipeed/picoclaw/pkg/tools/common"
 )
 
 // TestWebTool_WebFetch_Success verifies successful URL fetching

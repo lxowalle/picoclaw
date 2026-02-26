@@ -452,7 +452,7 @@ type PerplexityConfig struct {
 }
 
 type WebToolsConfig struct {
-	Enabled    bool             `json:"enabled" env:"PICOCLAW_TOOLS_WEB_ENABLED"`
+	Enabled    bool             `json:"enabled"    env:"PICOCLAW_TOOLS_WEB_ENABLED"`
 	Brave      BraveConfig      `json:"brave"`
 	Tavily     TavilyConfig     `json:"tavily"`
 	DuckDuckGo DuckDuckGoConfig `json:"duckduckgo"`
@@ -463,7 +463,7 @@ type WebToolsConfig struct {
 }
 
 type CronToolConfig struct {
-	Enabled            bool `json:"enabled" env:"PICOCLAW_TOOLS_CRON_ENABLED"`
+	Enabled            bool `json:"enabled"              env:"PICOCLAW_TOOLS_CRON_ENABLED"`
 	ExecTimeoutMinutes int  `json:"exec_timeout_minutes" env:"PICOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES"` // 0 means no timeout
 }
 
@@ -472,7 +472,7 @@ type ToolConfig struct {
 }
 
 type ExecConfig struct {
-	Enabled            bool     `json:"enabled" env:"PICOCLAW_TOOLS_EXEC_ENABLED"`
+	Enabled            bool     `json:"enabled"              env:"PICOCLAW_TOOLS_EXEC_ENABLED"`
 	EnableDenyPatterns bool     `json:"enable_deny_patterns" env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
 	CustomDenyPatterns []string `json:"custom_deny_patterns" env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
 }
@@ -485,17 +485,17 @@ type ToolsConfig struct {
 	Cron CronToolConfig `json:"cron"`
 
 	// File tools
-	ReadFile   ToolConfig `json:"read_file" env:"PICOCLAW_TOOLS_READ_FILE_ENABLED"`
-	WriteFile  ToolConfig `json:"write_file" env:"PICOCLAW_TOOLS_WRITE_FILE_ENABLED"`
-	EditFile   ToolConfig `json:"edit_file" env:"PICOCLAW_TOOLS_EDIT_FILE_ENABLED"`
+	ReadFile   ToolConfig `json:"read_file"   env:"PICOCLAW_TOOLS_READ_FILE_ENABLED"`
+	WriteFile  ToolConfig `json:"write_file"  env:"PICOCLAW_TOOLS_WRITE_FILE_ENABLED"`
+	EditFile   ToolConfig `json:"edit_file"   env:"PICOCLAW_TOOLS_EDIT_FILE_ENABLED"`
 	AppendFile ToolConfig `json:"append_file" env:"PICOCLAW_TOOLS_APPEND_FILE_ENABLED"`
-	ListDir    ToolConfig `json:"list_dir" env:"PICOCLAW_TOOLS_LIST_DIR_ENABLED"`
+	ListDir    ToolConfig `json:"list_dir"    env:"PICOCLAW_TOOLS_LIST_DIR_ENABLED"`
 
 	// Exec tool
 	Exec ExecConfig `json:"exec"`
 
 	// Skills tools
-	FindSkills   ToolConfig `json:"find_skills" env:"PICOCLAW_TOOLS_FIND_SKILLS_ENABLED"`
+	FindSkills   ToolConfig `json:"find_skills"   env:"PICOCLAW_TOOLS_FIND_SKILLS_ENABLED"`
 	InstallSkill ToolConfig `json:"install_skill" env:"PICOCLAW_TOOLS_INSTALL_SKILL_ENABLED"`
 
 	// Subagent tools

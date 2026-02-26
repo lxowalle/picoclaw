@@ -85,7 +85,9 @@ func (t *I2CTool) scan(args map[string]any) *common.ToolResult {
 	devPath := fmt.Sprintf("/dev/i2c-%s", bus)
 	fd, err := syscall.Open(devPath, syscall.O_RDWR, 0)
 	if err != nil {
-		return common.ErrorResult(fmt.Sprintf("failed to open %s: %v (check permissions and i2c-dev module)", devPath, err))
+		return common.ErrorResult(
+			fmt.Sprintf("failed to open %s: %v (check permissions and i2c-dev module)", devPath, err),
+		)
 	}
 	defer syscall.Close(fd)
 

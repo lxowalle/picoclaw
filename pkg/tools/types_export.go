@@ -4,14 +4,16 @@ import (
 	"github.com/sipeed/picoclaw/pkg/tools/common"
 )
 
-type Tool = common.Tool
-type ToolResult = common.ToolResult
-type ContextualTool = common.ContextualTool
-type AsyncTool = common.AsyncTool
-type AsyncCallback = common.AsyncCallback
-type FileSystem = common.FileSystem
-type HostFs = common.HostFs
-type SandboxFs = common.SandboxFs
+type (
+	Tool           = common.Tool
+	ToolResult     = common.ToolResult
+	ContextualTool = common.ContextualTool
+	AsyncTool      = common.AsyncTool
+	AsyncCallback  = common.AsyncCallback
+	FileSystem     = common.FileSystem
+	HostFs         = common.HostFs
+	SandboxFs      = common.SandboxFs
+)
 
 func NewToolResult(forLLM string) *ToolResult {
 	return common.NewToolResult(forLLM)

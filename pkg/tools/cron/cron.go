@@ -137,7 +137,9 @@ func (t *CronTool) addJob(args map[string]any) *common.ToolResult {
 	t.mu.RUnlock()
 
 	if channel == "" || chatID == "" {
-		return common.ErrorResult("no session context (channel/chat_id not set). Use this tool in an active conversation.")
+		return common.ErrorResult(
+			"no session context (channel/chat_id not set). Use this tool in an active conversation.",
+		)
 	}
 
 	message, ok := args["message"].(string)

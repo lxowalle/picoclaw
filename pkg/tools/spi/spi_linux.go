@@ -40,7 +40,9 @@ type spiTransfer struct {
 func configureSPI(devPath string, mode uint8, bits uint8, speed uint32) (int, *common.ToolResult) {
 	fd, err := syscall.Open(devPath, syscall.O_RDWR, 0)
 	if err != nil {
-		return -1, common.ErrorResult(fmt.Sprintf("failed to open %s: %v (check permissions and spidev module)", devPath, err))
+		return -1, common.ErrorResult(
+			fmt.Sprintf("failed to open %s: %v (check permissions and spidev module)", devPath, err),
+		)
 	}
 
 	// Set SPI mode
