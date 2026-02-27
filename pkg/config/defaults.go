@@ -14,7 +14,7 @@ func DefaultConfig() *Config {
 				RestrictToWorkspace: true,
 				Provider:            "",
 				Model:               "glm-4.7",
-				MaxTokens:           8192,
+				MaxTokens:           32768,
 				Temperature:         nil, // nil means use provider default
 				MaxToolIterations:   50,
 			},
