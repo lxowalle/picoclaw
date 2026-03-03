@@ -48,19 +48,20 @@ func NewPicoclawCommand() *cobra.Command {
 	return cmd
 }
 
-const color_blue = "\033[1;38;2;62;93;185m"
-const color_red = "\033[1;38;2;213;70;70m"
-const banner = "\r\n" +
-	color_blue + "██████╗ ██╗ ██████╗ ██████╗ " + color_red + " ██████╗██╗      █████╗ ██╗    ██╗\n" +
-	color_blue + "██╔══██╗██║██╔════╝██╔═══██╗" + color_red + "██╔════╝██║     ██╔══██╗██║    ██║\n" +
-	color_blue + "██████╔╝██║██║     ██║   ██║" + color_red + "██║     ██║     ███████║██║ █╗ ██║\n" +
-	color_blue + "██╔═══╝ ██║██║     ██║   ██║" + color_red + "██║     ██║     ██╔══██║██║███╗██║\n" +
-	color_blue + "██║     ██║╚██████╗╚██████╔╝" + color_red + "╚██████╗███████╗██║  ██║╚███╔███╔╝\n" +
-	color_blue + "╚═╝     ╚═╝ ╚═════╝ ╚═════╝ " + color_red + " ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\n " +
-	"\033[0m\r\n"
+const (
+	color_blue = "\033[1;38;2;62;93;185m"
+	color_red  = "\033[1;38;2;213;70;70m"
+	banner     = "\r\n" +
+		color_blue + "██████╗ ██╗ ██████╗ ██████╗ " + color_red + " ██████╗██╗      █████╗ ██╗    ██╗\n" +
+		color_blue + "██╔══██╗██║██╔════╝██╔═══██╗" + color_red + "██╔════╝██║     ██╔══██╗██║    ██║\n" +
+		color_blue + "██████╔╝██║██║     ██║   ██║" + color_red + "██║     ██║     ███████║██║ █╗ ██║\n" +
+		color_blue + "██╔═══╝ ██║██║     ██║   ██║" + color_red + "██║     ██║     ██╔══██║██║███╗██║\n" +
+		color_blue + "██║     ██║╚██████╗╚██████╔╝" + color_red + "╚██████╗███████╗██║  ██║╚███╔███╔╝\n" +
+		color_blue + "╚═╝     ╚═╝ ╚═════╝ ╚═════╝ " + color_red + " ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\n " +
+		"\033[0m\r\n"
+)
 
 func main() {
-
 	fmt.Printf("%s", banner)
 	cmd := NewPicoclawCommand()
 	if err := cmd.Execute(); err != nil {

@@ -5,16 +5,18 @@ import (
 	"github.com/rivo/tview"
 )
 
-const color_blue = "[#3e5db9]"
-const color_red = "[#d54646]"
-const banner = "\r\n[::b]" +
-	color_blue + "██████╗ ██╗ ██████╗ ██████╗ " + color_red + " ██████╗██╗      █████╗ ██╗    ██╗\n" +
-	color_blue + "██╔══██╗██║██╔════╝██╔═══██╗" + color_red + "██╔════╝██║     ██╔══██╗██║    ██║\n" +
-	color_blue + "██████╔╝██║██║     ██║   ██║" + color_red + "██║     ██║     ███████║██║ █╗ ██║\n" +
-	color_blue + "██╔═══╝ ██║██║     ██║   ██║" + color_red + "██║     ██║     ██╔══██║██║███╗██║\n" +
-	color_blue + "██║     ██║╚██████╗╚██████╔╝" + color_red + "╚██████╗███████╗██║  ██║╚███╔███╔╝\n" +
-	color_blue + "╚═╝     ╚═╝ ╚═════╝ ╚═════╝ " + color_red + " ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\n " +
-	"[:]"
+const (
+	color_blue = "[#3e5db9]"
+	color_red  = "[#d54646]"
+	banner     = "\r\n[::b]" +
+		color_blue + "██████╗ ██╗ ██████╗ ██████╗ " + color_red + " ██████╗██╗      █████╗ ██╗    ██╗\n" +
+		color_blue + "██╔══██╗██║██╔════╝██╔═══██╗" + color_red + "██╔════╝██║     ██╔══██╗██║    ██║\n" +
+		color_blue + "██████╔╝██║██║     ██║   ██║" + color_red + "██║     ██║     ███████║██║ █╗ ██║\n" +
+		color_blue + "██╔═══╝ ██║██║     ██║   ██║" + color_red + "██║     ██║     ██╔══██║██║███╗██║\n" +
+		color_blue + "██║     ██║╚██████╗╚██████╔╝" + color_red + "╚██████╗███████╗██║  ██║╚███╔███╔╝\n" +
+		color_blue + "╚═╝     ╚═╝ ╚═════╝ ╚═════╝ " + color_red + " ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\n " +
+		"[:]"
+)
 
 func applyStyles() {
 	tview.Styles.PrimitiveBackgroundColor = tcell.NewRGBColor(12, 13, 22)
