@@ -381,7 +381,7 @@
       "enabled": true
     },
     "list_dir": {
-      "enabled": false
+      "enabled": true
     },
     "message": {
       "enabled": true

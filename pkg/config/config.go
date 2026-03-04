@@ -562,12 +562,12 @@ type GLMSearchConfig struct {
 }
 
 type WebToolsConfig struct {
-	ToolConfig
-	Brave      BraveConfig      `json:"brave"`
-	Tavily     TavilyConfig     `json:"tavily"`
-	DuckDuckGo DuckDuckGoConfig `json:"duckduckgo"`
-	Perplexity PerplexityConfig `json:"perplexity"`
-	GLMSearch  GLMSearchConfig  `json:"glm_search"`
+	ToolConfig `                 env:"PICOCLAW_TOOLS_WEB_"`
+	Brave      BraveConfig      `                          json:"brave"`
+	Tavily     TavilyConfig     `                          json:"tavily"`
+	DuckDuckGo DuckDuckGoConfig `                          json:"duckduckgo"`
+	Perplexity PerplexityConfig `                          json:"perplexity"`
+	GLMSearch  GLMSearchConfig  `                          json:"glm_search"`
 	// Proxy is an optional proxy URL for web tools (http/https/socks5/socks5h).
 	// For authenticated proxies, prefer HTTP_PROXY/HTTPS_PROXY env vars instead of embedding credentials in config.
 	Proxy           string `json:"proxy,omitempty"             env:"PICOCLAW_TOOLS_WEB_PROXY"`
@@ -575,28 +575,28 @@ type WebToolsConfig struct {
 }
 
 type CronToolsConfig struct {
-	ToolConfig
-	ExecTimeoutMinutes int `json:"exec_timeout_minutes" env:"PICOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES"` // 0 means no timeout
+	ToolConfig         `    env:"PICOCLAW_TOOLS_CRON_"`
+	ExecTimeoutMinutes int `env:"PICOCLAW_TOOLS_CRON_EXEC_TIMEOUT_MINUTES" json:"exec_timeout_minutes"` // 0 means no timeout
 }
 
 type ExecConfig struct {
-	ToolConfig
-	EnableDenyPatterns  bool     `json:"enable_deny_patterns"  env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
-	CustomDenyPatterns  []string `json:"custom_deny_patterns"  env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
-	CustomAllowPatterns []string `json:"custom_allow_patterns" env:"PICOCLAW_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
+	ToolConfig          `         env:"PICOCLAW_TOOLS_EXEC_"`
+	EnableDenyPatterns  bool     `env:"PICOCLAW_TOOLS_EXEC_ENABLE_DENY_PATTERNS"  json:"enable_deny_patterns"`
+	CustomDenyPatterns  []string `env:"PICOCLAW_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"  json:"custom_deny_patterns"`
+	CustomAllowPatterns []string `env:"PICOCLAW_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS" json:"custom_allow_patterns"`
 }
 
 type SkillsToolsConfig struct {
-	ToolConfig
-	Registries            SkillsRegistriesConfig `json:"registries"`
-	MaxConcurrentSearches int                    `json:"max_concurrent_searches" env:"PICOCLAW_SKILLS_MAX_CONCURRENT_SEARCHES"`
-	SearchCache           SearchCacheConfig      `json:"search_cache"`
+	ToolConfig            `                       env:"PICOCLAW_TOOLS_SKILLS_"`
+	Registries            SkillsRegistriesConfig `                                                    json:"registries"`
+	MaxConcurrentSearches int                    `env:"PICOCLAW_TOOLS_SKILLS_MAX_CONCURRENT_SEARCHES" json:"max_concurrent_searches"`
+	SearchCache           SearchCacheConfig      `                                                    json:"search_cache"`
 }
 
 type MediaCleanupConfig struct {
-	ToolConfig
-	MaxAge   int `json:"max_age_minutes"  env:"PICOCLAW_MEDIA_CLEANUP_MAX_AGE"`
-	Interval int `json:"interval_minutes" env:"PICOCLAW_MEDIA_CLEANUP_INTERVAL"`
+	ToolConfig `    env:"PICOCLAW_MEDIA_CLEANUP_"`
+	MaxAge     int `env:"PICOCLAW_MEDIA_CLEANUP_MAX_AGE"  json:"max_age_minutes"`
+	Interval   int `env:"PICOCLAW_MEDIA_CLEANUP_INTERVAL" json:"interval_minutes"`
 }
 
 type ToolsConfig struct {
@@ -609,7 +609,6 @@ type ToolsConfig struct {
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"`
 	MCP             MCPConfig          `json:"mcp"`
 	AppendFile      ToolConfig         `json:"append_file"`
-	CronTool        ToolConfig         `json:"cron_tool"`
 	EditFile        ToolConfig         `json:"edit_file"`
 	ExecTool        ToolConfig         `json:"exec_tool"`
 	FindSkills      ToolConfig         `json:"find_skills"`
@@ -622,7 +621,6 @@ type ToolsConfig struct {
 	SPI             ToolConfig         `json:"spi"`
 	Subagent        ToolConfig         `json:"subagent"`
 	WebFetch        ToolConfig         `json:"web_fetch"`
-	WebSearch       ToolConfig         `json:"web_search"`
 	WriteFile       ToolConfig         `json:"write_file"`
 }
 
@@ -893,8 +891,6 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.Subagent.Enabled
 	case "web_fetch":
 		return t.WebFetch.Enabled
-	case "web_search":
-		return t.WebSearch.Enabled
 	case "write_file":
 		return t.WriteFile.Enabled
 	default:

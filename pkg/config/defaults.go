@@ -391,9 +391,6 @@ func DefaultConfig() *Config {
 			AppendFile: ToolConfig{
 				Enabled: true,
 			},
-			CronTool: ToolConfig{
-				Enabled: true,
-			},
 			EditFile: ToolConfig{
 				Enabled: true,
 			},
@@ -410,7 +407,7 @@ func DefaultConfig() *Config {
 				Enabled: true,
 			},
 			ListDir: ToolConfig{
-				Enabled: false,
+				Enabled: true,
 			},
 			Message: ToolConfig{
 				Enabled: true,
@@ -428,9 +425,6 @@ func DefaultConfig() *Config {
 				Enabled: true,
 			},
 			WebFetch: ToolConfig{
-				Enabled: true,
-			},
-			WebSearch: ToolConfig{
 				Enabled: true,
 			},
 			WriteFile: ToolConfig{
