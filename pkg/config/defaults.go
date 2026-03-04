@@ -394,9 +394,6 @@ func DefaultConfig() *Config {
 			EditFile: ToolConfig{
 				Enabled: true,
 			},
-			ExecTool: ToolConfig{
-				Enabled: true,
-			},
 			FindSkills: ToolConfig{
 				Enabled: true,
 			},
