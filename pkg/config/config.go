@@ -610,7 +610,6 @@ type ToolsConfig struct {
 	MCP             MCPConfig          `json:"mcp"`
 	AppendFile      ToolConfig         `json:"append_file"`
 	EditFile        ToolConfig         `json:"edit_file"`
-	ExecTool        ToolConfig         `json:"exec_tool"`
 	FindSkills      ToolConfig         `json:"find_skills"`
 	I2C             ToolConfig         `json:"i2c"`
 	InstallSkill    ToolConfig         `json:"install_skill"`

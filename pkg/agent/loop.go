@@ -105,7 +105,7 @@ func registerSharedTools(
 		}
 
 		// Web tools
-		if cfg.Tools.IsToolEnabled("web_search") {
+		if cfg.Tools.IsToolEnabled("web") {
 			searchTool, err := tools.NewWebSearchTool(tools.WebSearchToolOptions{
 				BraveAPIKey:          cfg.Tools.Web.Brave.APIKey,
 				BraveMaxResults:      cfg.Tools.Web.Brave.MaxResults,
@@ -181,15 +181,17 @@ func registerSharedTools(
 		}
 
 		// Spawn tool with allowlist checker
-		if cfg.Tools.IsToolEnabled("spawn") {
+		if cfg.Tools.IsToolEnabled("subagent") {
 			subagentManager := tools.NewSubagentManager(provider, agent.Model, agent.Workspace, msgBus)
 			subagentManager.SetLLMOptions(agent.MaxTokens, agent.Temperature)
-			spawnTool := tools.NewSpawnTool(subagentManager)
-			currentAgentID := agentID
-			spawnTool.SetAllowlistChecker(func(targetAgentID string) bool {
-				return registry.CanSpawnSubagent(currentAgentID, targetAgentID)
-			})
-			agent.Tools.Register(spawnTool)
+			if cfg.Tools.IsToolEnabled("spawn") {
+				spawnTool := tools.NewSpawnTool(subagentManager)
+				currentAgentID := agentID
+				spawnTool.SetAllowlistChecker(func(targetAgentID string) bool {
+					return registry.CanSpawnSubagent(currentAgentID, targetAgentID)
+				})
+				agent.Tools.Register(spawnTool)
+			}
 		}
 	}
 }
