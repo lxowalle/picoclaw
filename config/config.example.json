@@ -362,9 +362,6 @@
     "append_file": {
       "enabled": true
     },
-    "cron_tool": {
-      "enabled": true
-    },
     "edit_file": {
       "enabled": true
     },
@@ -399,9 +396,6 @@
       "enabled": true
     },
     "web_fetch": {
-      "enabled": true
-    },
-    "web_search": {
       "enabled": true
     },
     "write_file": {
