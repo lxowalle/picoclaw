@@ -386,7 +386,7 @@ func DefaultConfig() *Config {
 			},
 			MCP: MCPConfig{
 				ToolConfig: ToolConfig{
-					Enabled: true,
+					Enabled: false,
 				},
 				Servers: map[string]MCPServerConfig{},
 			},
