@@ -35,15 +35,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Update version in IDENTITY.md
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          VERSION="${RELEASE_TAG#v}"
-          sed -i "s/^## Version.*/## Version\n${VERSION}/" workspace/IDENTITY.md
-          echo "Updated version to: ${VERSION}"
-
       - name: Create and push tag
         shell: bash
         env:
@@ -67,6 +58,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.tag }}
+
+      - name: Update version in IDENTITY.md
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          sed -i "s/^## Version.*/## Version\n${VERSION}/" workspace/IDENTITY.md
+          echo "Updated version to: ${VERSION}"
 
       - name: Setup Go from go.mod
         id: setup-go
