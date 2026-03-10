@@ -7,7 +7,7 @@ PicoClaw 🦞
 Ultra-lightweight personal AI assistant written in Go, inspired by nanobot.
 
 ## Version
-0.1.0
+dev
 
 ## Purpose
 - Provide intelligent AI assistance with minimal resource usage
