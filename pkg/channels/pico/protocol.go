@@ -8,6 +8,9 @@ const (
 	TypeMessageSend = "message.send"
 	TypeMediaSend   = "media.send"
 	TypePing        = "ping"
+	TypeAudioStart  = "audio.start"
+	TypeAudioChunk  = "audio.chunk"
+	TypeAudioStop   = "audio.stop"
 
 	// TypeMessageCreate is sent from server to client.
 	TypeMessageCreate = "message.create"
@@ -17,6 +20,7 @@ const (
 	TypeTypingStop    = "typing.stop"
 	TypeError         = "error"
 	TypePong          = "pong"
+	TypeAudioData     = "audio.data"
 )
 
 // PicoMessage is the wire format for all Pico Protocol messages.

@@ -88,6 +88,7 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
 	Devices   DevicesConfig   `json:"devices"`
 	Voice     VoiceConfig     `json:"voice"`
+	Audio     AudioConfig     `json:"audio,omitempty"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty"`
 }
@@ -471,6 +472,14 @@ type PicoConfig struct {
 	MaxConnections  int                 `json:"max_connections,omitempty"`
 	AllowFrom       FlexibleStringSlice `json:"allow_from"                  env:"PICOCLAW_CHANNELS_PICO_ALLOW_FROM"`
 	Placeholder     PlaceholderConfig   `json:"placeholder,omitempty"`
+	Audio           PicoAudioConfig     `json:"audio,omitempty"`
+}
+
+type PicoAudioConfig struct {
+	Enabled     bool   `json:"enabled,omitempty"`
+	Streaming   bool   `json:"streaming,omitempty"`
+	ASRProvider string `json:"asr_provider,omitempty"`
+	TTSProvider string `json:"tts_provider,omitempty"`
 }
 
 type IRCConfig struct {
@@ -504,6 +513,34 @@ type DevicesConfig struct {
 
 type VoiceConfig struct {
 	EchoTranscription bool `json:"echo_transcription" env:"PICOCLAW_VOICE_ECHO_TRANSCRIPTION"`
+}
+
+type AudioConfig struct {
+	Enabled   bool                           `json:"enabled,omitempty"`
+	ASR       AudioASRConfig                 `json:"asr,omitempty"`
+	TTS       AudioTTSConfig                 `json:"tts,omitempty"`
+	Providers map[string]AudioProviderConfig `json:"providers,omitempty"`
+}
+
+type AudioASRConfig struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Provider string `json:"provider,omitempty"`
+}
+
+type AudioTTSConfig struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Provider string `json:"provider,omitempty"`
+}
+
+// AudioProviderConfig 是 Provider 的通用配置结构
+// Internal 字段包含 Provider 特定的配置，由 Provider 自己解析
+type AudioProviderConfig struct {
+	Enabled          bool   `json:"enabled,omitempty"`
+	Format           string `json:"format,omitempty"`
+	SupportStreaming bool   `json:"support_streaming,omitempty"`
+	// Internal 包含 Provider 特定的配置，由 Provider 自己解析
+	// 例如 Doubao: {"appid": "xxx", "token": "xxx", "cluster": "xxx"}
+	Internal map[string]any `json:"internal,omitempty"`
 }
 
 type ProvidersConfig struct {

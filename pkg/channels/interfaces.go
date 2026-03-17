@@ -3,7 +3,9 @@ package channels
 import (
 	"context"
 
+	"github.com/sipeed/picoclaw/pkg/asr/service"
 	"github.com/sipeed/picoclaw/pkg/commands"
+	ttsservice "github.com/sipeed/picoclaw/pkg/tts/service"
 )
 
 // TypingCapable — channels that can show a typing/thinking indicator.
@@ -49,4 +51,16 @@ type PlaceholderRecorder interface {
 // Channels that do not support platform-level command menus can ignore it.
 type CommandRegistrarCapable interface {
 	RegisterCommands(ctx context.Context, defs []commands.Definition) error
+}
+
+// ASRAware is implemented by channels that support ASR (Automatic Speech Recognition).
+// Manager injects the ASR service into channels that implement this interface.
+type ASRAware interface {
+	SetASRService(svc *service.Service)
+}
+
+// TTSAware is implemented by channels that support TTS (Text-to-Speech).
+// Manager injects the TTS service into channels that implement this interface.
+type TTSAware interface {
+	SetTTSService(svc *ttsservice.Service)
 }

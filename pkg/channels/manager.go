@@ -17,12 +17,14 @@ import (
 
 	"golang.org/x/time/rate"
 
+	asrService "github.com/sipeed/picoclaw/pkg/asr/service"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/constants"
 	"github.com/sipeed/picoclaw/pkg/health"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/media"
+	ttsService "github.com/sipeed/picoclaw/pkg/tts/service"
 )
 
 const (
@@ -185,15 +187,67 @@ func NewManager(cfg *config.Config, messageBus *bus.MessageBus, store media.Medi
 		mediaStore: store,
 	}
 
-	if err := m.initChannels(); err != nil {
+	// Initialize audio services once for all channels
+	asrSvc, ttsSvc, err := m.initAudioServices()
+	if err != nil {
+		logger.WarnCF("channels", "Failed to initialize audio services", map[string]any{"error": err.Error()})
+		// Don't fail manager creation if audio services fail
+	}
+
+	if err := m.initChannels(asrSvc, ttsSvc); err != nil {
 		return nil, err
 	}
 
 	return m, nil
 }
 
+// initAudioServices initializes ASR and TTS services from config.
+// Services are created with provider selectors that support automatic failover.
+// This is called once during manager initialization and services are injected into channels that support them.
+func (m *Manager) initAudioServices() (*asrService.Service, *ttsService.Service, error) {
+	if !m.config.Audio.Enabled {
+		return nil, nil, nil
+	}
+
+	var asrSvc *asrService.Service
+	var ttsSvc *ttsService.Service
+
+	// Initialize ASR service with selector (supports multiple providers with failover)
+	if m.config.Audio.ASR.Provider != "" {
+		svc, err := asrService.NewServiceFromConfig(m.config)
+		if err != nil {
+			logger.WarnCF("channels", "Failed to create ASR service", map[string]any{
+				"error": err.Error(),
+			})
+		} else {
+			asrSvc = svc
+			logger.InfoCF("channels", "ASR service initialized with selector", map[string]any{
+				"primary": m.config.Audio.ASR.Provider,
+			})
+		}
+	}
+
+	// Initialize TTS service with selector (supports multiple providers with failover)
+	if m.config.Audio.TTS.Provider != "" {
+		svc, err := ttsService.NewServiceFromConfig(m.config)
+		if err != nil {
+			logger.WarnCF("channels", "Failed to create TTS service", map[string]any{
+				"error": err.Error(),
+			})
+		} else {
+			ttsSvc = svc
+			logger.InfoCF("channels", "TTS service initialized with selector", map[string]any{
+				"primary": m.config.Audio.TTS.Provider,
+			})
+		}
+	}
+
+	return asrSvc, ttsSvc, nil
+}
+
 // initChannel is a helper that looks up a factory by name and creates the channel.
-func (m *Manager) initChannel(name, displayName string) {
+// It also injects common dependencies like audio services.
+func (m *Manager) initChannel(name, displayName string, asrSvc *asrService.Service, ttsSvc *ttsService.Service) {
 	f, ok := getFactory(name)
 	if !ok {
 		logger.WarnCF("channels", "Factory not registered", map[string]any{
@@ -225,6 +279,20 @@ func (m *Manager) initChannel(name, displayName string) {
 		if setter, ok := ch.(interface{ SetOwner(ch Channel) }); ok {
 			setter.SetOwner(ch)
 		}
+		// Inject ASR service if channel supports it
+		if asrSvc != nil {
+			if setter, ok := ch.(ASRAware); ok {
+				setter.SetASRService(asrSvc)
+				logger.DebugCF("channels", "Injected ASR service", map[string]any{"channel": displayName})
+			}
+		}
+		// Inject TTS service if channel supports it
+		if ttsSvc != nil {
+			if setter, ok := ch.(TTSAware); ok {
+				setter.SetTTSService(ttsSvc)
+				logger.DebugCF("channels", "Injected TTS service", map[string]any{"channel": displayName})
+			}
+		}
 		m.channels[name] = ch
 		logger.InfoCF("channels", "Channel enabled successfully", map[string]any{
 			"channel": displayName,
@@ -232,79 +300,79 @@ func (m *Manager) initChannel(name, displayName string) {
 	}
 }
 
-func (m *Manager) initChannels() error {
+func (m *Manager) initChannels(asrSvc *asrService.Service, ttsSvc *ttsService.Service) error {
 	logger.InfoC("channels", "Initializing channel manager")
 
 	if m.config.Channels.Telegram.Enabled && m.config.Channels.Telegram.Token != "" {
-		m.initChannel("telegram", "Telegram")
+		m.initChannel("telegram", "Telegram", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.WhatsApp.Enabled {
 		waCfg := m.config.Channels.WhatsApp
 		if waCfg.UseNative {
-			m.initChannel("whatsapp_native", "WhatsApp Native")
+			m.initChannel("whatsapp_native", "WhatsApp Native", asrSvc, ttsSvc)
 		} else if waCfg.BridgeURL != "" {
-			m.initChannel("whatsapp", "WhatsApp")
+			m.initChannel("whatsapp", "WhatsApp", asrSvc, ttsSvc)
 		}
 	}
 
 	if m.config.Channels.Feishu.Enabled {
-		m.initChannel("feishu", "Feishu")
+		m.initChannel("feishu", "Feishu", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.Discord.Enabled && m.config.Channels.Discord.Token != "" {
-		m.initChannel("discord", "Discord")
+		m.initChannel("discord", "Discord", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.MaixCam.Enabled {
-		m.initChannel("maixcam", "MaixCam")
+		m.initChannel("maixcam", "MaixCam", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.QQ.Enabled {
-		m.initChannel("qq", "QQ")
+		m.initChannel("qq", "QQ", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.DingTalk.Enabled && m.config.Channels.DingTalk.ClientID != "" {
-		m.initChannel("dingtalk", "DingTalk")
+		m.initChannel("dingtalk", "DingTalk", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.Slack.Enabled && m.config.Channels.Slack.BotToken != "" {
-		m.initChannel("slack", "Slack")
+		m.initChannel("slack", "Slack", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.Matrix.Enabled &&
 		m.config.Channels.Matrix.Homeserver != "" &&
 		m.config.Channels.Matrix.UserID != "" &&
 		m.config.Channels.Matrix.AccessToken != "" {
-		m.initChannel("matrix", "Matrix")
+		m.initChannel("matrix", "Matrix", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.LINE.Enabled && m.config.Channels.LINE.ChannelAccessToken != "" {
-		m.initChannel("line", "LINE")
+		m.initChannel("line", "LINE", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.OneBot.Enabled && m.config.Channels.OneBot.WSUrl != "" {
-		m.initChannel("onebot", "OneBot")
+		m.initChannel("onebot", "OneBot", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.WeCom.Enabled && m.config.Channels.WeCom.Token != "" {
-		m.initChannel("wecom", "WeCom")
+		m.initChannel("wecom", "WeCom", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.WeComAIBot.Enabled && m.config.Channels.WeComAIBot.Token != "" {
-		m.initChannel("wecom_aibot", "WeCom AI Bot")
+		m.initChannel("wecom_aibot", "WeCom AI Bot", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.WeComApp.Enabled && m.config.Channels.WeComApp.CorpID != "" {
-		m.initChannel("wecom_app", "WeCom App")
+		m.initChannel("wecom_app", "WeCom App", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.Pico.Enabled && m.config.Channels.Pico.Token != "" {
-		m.initChannel("pico", "Pico")
+		m.initChannel("pico", "Pico", asrSvc, ttsSvc)
 	}
 
 	if m.config.Channels.IRC.Enabled && m.config.Channels.IRC.Server != "" {
-		m.initChannel("irc", "IRC")
+		m.initChannel("irc", "IRC", asrSvc, ttsSvc)
 	}
 
 	logger.InfoCF("channels", "Channel initialization completed", map[string]any{

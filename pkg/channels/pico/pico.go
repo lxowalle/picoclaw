@@ -2,6 +2,7 @@ package pico
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,11 +14,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"github.com/sipeed/picoclaw/pkg/asr"
+	asrService "github.com/sipeed/picoclaw/pkg/asr/service"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	ttsService "github.com/sipeed/picoclaw/pkg/tts/service"
 )
 
 // picoConn represents a single WebSocket connection.
@@ -51,22 +55,26 @@ func (pc *picoConn) close() {
 type PicoChannel struct {
 	*channels.BaseChannel
 	config      config.PicoConfig
+	appConfig   *config.Config
 	upgrader    websocket.Upgrader
 	connections sync.Map // connID → *picoConn
 	connCount   atomic.Int32
 	ctx         context.Context
 	cancel      context.CancelFunc
+	asrService  *asrService.Service
+	ttsService  *ttsService.Service
 }
 
 // NewPicoChannel creates a new Pico Protocol channel.
-func NewPicoChannel(cfg config.PicoConfig, messageBus *bus.MessageBus) (*PicoChannel, error) {
-	if cfg.Token == "" {
+func NewPicoChannel(cfg *config.Config, messageBus *bus.MessageBus) (*PicoChannel, error) {
+	picoCfg := cfg.Channels.Pico
+	if picoCfg.Token == "" {
 		return nil, fmt.Errorf("pico token is required")
 	}
 
-	base := channels.NewBaseChannel("pico", cfg, messageBus, cfg.AllowFrom)
+	base := channels.NewBaseChannel("pico", picoCfg, messageBus, picoCfg.AllowFrom)
 
-	allowOrigins := cfg.AllowOrigins
+	allowOrigins := picoCfg.AllowOrigins
 	checkOrigin := func(r *http.Request) bool {
 		if len(allowOrigins) == 0 {
 			return true // allow all if not configured
@@ -80,15 +88,32 @@ func NewPicoChannel(cfg config.PicoConfig, messageBus *bus.MessageBus) (*PicoCha
 		return false
 	}
 
-	return &PicoChannel{
+	channel := &PicoChannel{
 		BaseChannel: base,
-		config:      cfg,
+		config:      picoCfg,
+		appConfig:   cfg,
 		upgrader: websocket.Upgrader{
 			CheckOrigin:     checkOrigin,
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 		},
-	}, nil
+	}
+
+	return channel, nil
+}
+
+// SetASRService implements channels.ASRAware interface.
+// It is called by Manager to inject the ASR service.
+func (c *PicoChannel) SetASRService(svc *asrService.Service) {
+	c.asrService = svc
+	logger.InfoCF("pico", "ASR service injected", nil)
+}
+
+// SetTTSService implements channels.TTSAware interface.
+// It is called by Manager to inject the TTS service.
+func (c *PicoChannel) SetTTSService(svc *ttsService.Service) {
+	c.ttsService = svc
+	logger.InfoCF("pico", "TTS service injected", nil)
 }
 
 // Start implements Channel.
@@ -143,11 +168,53 @@ func (c *PicoChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return channels.ErrNotRunning
 	}
 
+	// Send text message
 	outMsg := newMessage(TypeMessageCreate, map[string]any{
 		"content": msg.Content,
 	})
+	if err := c.broadcastToSession(msg.ChatID, outMsg); err != nil {
+		return err
+	}
 
-	return c.broadcastToSession(msg.ChatID, outMsg)
+	// If TTS is enabled, synthesize and send audio
+	if c.ttsService != nil && c.config.Audio.Enabled {
+		go c.sendAudioResponse(msg.ChatID, msg.Content)
+	}
+
+	return nil
+}
+
+// sendAudioResponse synthesizes text to audio and sends it to the client.
+func (c *PicoChannel) sendAudioResponse(chatID, text string) {
+	if c.ttsService == nil {
+		return
+	}
+
+	// Use provider's output format
+	outputFormat := c.ttsService.OutputFormat()
+
+	audioData, err := c.ttsService.Synthesize(c.ctx, text, "", outputFormat)
+	if err != nil {
+		logger.ErrorCF("pico", "TTS synthesis failed", map[string]any{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Encode audio data to base64
+	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
+
+	// Send audio message
+	audioMsg := newMessage(TypeAudioData, map[string]any{
+		"data":   audioBase64,
+		"format": string(outputFormat),
+	})
+
+	if err := c.broadcastToSession(chatID, audioMsg); err != nil {
+		logger.ErrorCF("pico", "Failed to send audio", map[string]any{
+			"error": err.Error(),
+		})
+	}
 }
 
 // EditMessage implements channels.MessageEditor.
@@ -428,6 +495,19 @@ func (c *PicoChannel) handleMessage(pc *picoConn, msg PicoMessage) {
 	case TypeMessageSend:
 		c.handleMessageSend(pc, msg)
 
+	case TypeAudioChunk:
+		c.handleAudioChunk(pc, msg)
+
+	case TypeAudioStart:
+		// Acknowledge audio stream start
+		ack := newMessage(TypeAudioData, map[string]any{"status": "ready"})
+		pc.writeJSON(ack)
+
+	case TypeAudioStop:
+		// Acknowledge audio stream end
+		ack := newMessage(TypeAudioData, map[string]any{"status": "complete"})
+		pc.writeJSON(ack)
+
 	default:
 		errMsg := newError("unknown_type", fmt.Sprintf("unknown message type: %s", msg.Type))
 		pc.writeJSON(errMsg)
@@ -475,6 +555,84 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	}
 
 	c.HandleMessage(c.ctx, peer, msg.ID, senderID, chatID, content, nil, metadata, sender)
+}
+
+// handleAudioChunk processes an inbound audio chunk from a client.
+func (c *PicoChannel) handleAudioChunk(pc *picoConn, msg PicoMessage) {
+	if c.asrService == nil {
+		errMsg := newError("asr_not_configured", "ASR service is not configured")
+		pc.writeJSON(errMsg)
+		return
+	}
+
+	// Extract audio data from payload
+	audioData, ok := msg.Payload["data"].(string)
+	if !ok {
+		errMsg := newError("invalid_audio_data", "audio data is missing or invalid")
+		pc.writeJSON(errMsg)
+		return
+	}
+
+	// Decode base64 audio data
+	audioBytes, err := base64.StdEncoding.DecodeString(audioData)
+	if err != nil {
+		errMsg := newError("audio_decode_error", fmt.Sprintf("failed to decode audio data: %v", err))
+		pc.writeJSON(errMsg)
+		return
+	}
+
+	// Get audio format from payload (default to opus)
+	audioFormat := "opus"
+	if format, ok := msg.Payload["format"].(string); ok && format != "" {
+		audioFormat = format
+	}
+
+	// Perform speech recognition
+	text, err := c.asrService.Recognize(c.ctx, audioBytes, asr.Format(audioFormat))
+	if err != nil {
+		errMsg := newError("asr_error", fmt.Sprintf("failed to recognize audio: %v", err))
+		pc.writeJSON(errMsg)
+		return
+	}
+
+	// If recognition produced text, treat it as a message
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+
+	sessionID := msg.SessionID
+	if sessionID == "" {
+		sessionID = pc.sessionID
+	}
+
+	chatID := "pico:" + sessionID
+	senderID := "pico-user"
+
+	peer := bus.Peer{Kind: "direct", ID: "pico:" + sessionID}
+
+	metadata := map[string]string{
+		"platform":     "pico",
+		"session_id":   sessionID,
+		"conn_id":      pc.id,
+		"audio_format": audioFormat,
+	}
+
+	logger.DebugCF("pico", "Received audio message", map[string]any{
+		"session_id": sessionID,
+		"text":       truncate(text, 50),
+	})
+
+	sender := bus.SenderInfo{
+		Platform:    "pico",
+		PlatformID:  senderID,
+		CanonicalID: identity.BuildCanonicalID("pico", senderID),
+	}
+
+	if !c.IsAllowedSender(sender) {
+		return
+	}
+
+	c.HandleMessage(c.ctx, peer, msg.ID, senderID, chatID, text, nil, metadata, sender)
 }
 
 // truncate truncates a string to maxLen runes.
