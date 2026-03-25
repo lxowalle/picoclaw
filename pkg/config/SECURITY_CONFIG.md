@@ -137,6 +137,61 @@ The refactoring maintains full backward compatibility:
 2. **Mixed usage**: You can mix `ref:` references and direct values
 3. **Optional security file**: If `.security.yml` doesn't exist, all references will fail (but direct values still work)
 
+## Configuration Precedence
+
+When both `config.json` and `.security.yml` contain security configurations, PicoClaw uses the following precedence rules:
+
+### Priority Order (Highest to Lowest)
+
+1. **Security settings in `config.json`** (highest priority)
+   - Direct values in `config.json`
+   - These settings override any conflicting values in `.security.yml`
+
+2. **Security settings in `.security.yml`**
+   - Used when no conflicting setting exists in `config.json`
+   - Provides default/fallback security values
+
+### Practical Example
+
+**Scenario**: You have API keys defined in both files.
+
+**.security.yml:**
+```yaml
+model_list:
+  gpt-4o:
+    api_keys:
+      - "sk-default-key-from-security-yml"
+```
+
+**config.json:**
+```json
+{
+  "model_list": [
+    {
+      "model_name": "gpt-4o",
+      "api_key": "sk-custom-key-from-config-json"
+    }
+  ]
+}
+```
+
+**Result**: The API key `"sk-custom-key-from-config-json"` from `config.json` takes precedence.
+
+### Use Cases
+
+This precedence system enables several useful patterns:
+
+1. **Environment-specific overrides**: Keep default keys in `.security.yml`, override per-environment keys in `config.json`
+2. **Temporary testing**: Quickly test a new API key in `config.json` without modifying `.security.yml`
+3. **Team sharing**: Share common keys via `.security.yml` while allowing individual developers to override in their local `config.json`
+
+### Migration Behavior
+
+When migrating from config v0 to v1:
+- Security values extracted from legacy `config.json` take precedence
+- Existing `.security.yml` values serve as fallback
+- No data loss: all values are preserved and merged appropriately
+
 ### API Key Formats in .security.yml
 
 **Models (gpt-5.4, claude-sonnet-4.6, etc.):**
