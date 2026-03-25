@@ -145,13 +145,7 @@ function isConfigured(
     case "weixin":
       return asString(config.account_id) !== ""
     case "wecom":
-      return asString(config.token) !== ""
-    case "wecom_app":
-      return (
-        asString(config.corp_id) !== "" && asString(config.corp_secret) !== ""
-      )
-    case "wecom_aibot":
-      return asString(config.token) !== ""
+      return asString(config.bot_id) !== ""
     case "whatsapp":
       return asString(config.bridge_url) !== ""
     case "whatsapp_native":
@@ -192,11 +186,7 @@ function getRequiredFieldKeys(channelName: string): string[] {
     case "onebot":
       return ["ws_url"]
     case "wecom":
-      return ["token"]
-    case "wecom_app":
-      return ["corp_id", "corp_secret"]
-    case "wecom_aibot":
-      return ["token"]
+      return ["bot_id", "secret"]
     case "whatsapp":
       return ["bridge_url"]
     case "pico":
