@@ -303,7 +303,14 @@ For detailed TUI documentation, see [docs.picoclaw.io](https://docs.picoclaw.io)
 
 Give your decade-old phone a second life! Turn it into a smart AI Assistant with PicoClaw.
 
-**Option 1: Termux (available now)**
+**Option 1: APK Install**
+
+Download the APK from [picoclaw.io](https://picoclaw.io/download/) and install directly. No Termux required!
+
+**Option 2: Termux**
+
+<details>
+<summary><b>Method:</b></summary>
 
 1. Install [Termux](https://github.com/termux/termux-app) (download from [GitHub Releases](https://github.com/termux/termux-app/releases), or search in F-Droid / Google Play)
 2. Run the following commands:
@@ -319,10 +326,6 @@ termux-chroot ./picoclaw onboard   # chroot provides a standard Linux filesystem
 Then follow the Terminal Launcher section below to complete configuration.
 
 <img src="assets/termux.jpg" alt="PicoClaw on Termux" width="512">
-
-**Option 2: APK Install**
-
-Download the APK from [picoclaw.io](https://picoclaw.io/download/) and install directly. No Termux required!
 
 <details>
 <summary><b>Terminal Launcher (for resource-constrained environments)</b></summary>
@@ -376,6 +379,7 @@ picoclaw gateway
 
 </details>
 
+</details>
 ## 🔌 Providers (LLM)
 
 PicoClaw supports 30+ LLM providers through the `model_list` configuration. Use the `protocol/model` format:
