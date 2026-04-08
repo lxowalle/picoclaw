@@ -20,7 +20,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/constants"
-	"github.com/sipeed/picoclaw/pkg/namespace"
+	"github.com/sipeed/picoclaw/pkg/isolation"
 )
 
 var (
@@ -379,7 +379,9 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := namespace.Start(cmd); err != nil {
+	// Route shell execution through the shared isolation entry point so exec tool
+	// subprocesses receive the same isolation policy as other integrations.
+	if err := isolation.Start(cmd); err != nil {
 		return ErrorResult(fmt.Sprintf("failed to start command: %v", err))
 	}
 
@@ -522,7 +524,9 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		session.stdinWriter = stdinWriter
 	}
 
-	if err := namespace.Start(cmd); err != nil {
+	// Background sessions use the same startup path so isolation stays consistent
+	// with synchronous exec runs.
+	if err := isolation.Start(cmd); err != nil {
 		if session.ptyMaster != nil {
 			session.ptyMaster.Close()
 		}

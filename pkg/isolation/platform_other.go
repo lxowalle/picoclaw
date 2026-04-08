@@ -1,6 +1,6 @@
 //go:build !linux && !windows
 
-package namespace
+package isolation
 
 import (
 	"os/exec"
@@ -9,6 +9,8 @@ import (
 )
 
 func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, root string) error {
+	// Unsupported platforms currently keep the command unchanged. Callers rely on
+	// Preflight and higher-level checks to surface unsupported isolation modes.
 	return nil
 }
 

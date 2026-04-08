@@ -17,6 +17,8 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		Version: CurrentVersion,
+		// Isolation is opt-in so existing installations keep their current behavior
+		// until the user explicitly enables subprocess sandboxing.
 		Isolation: IsolationConfig{
 			Enabled: false,
 		},

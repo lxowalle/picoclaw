@@ -1,6 +1,6 @@
 //go:build linux
 
-package namespace
+package isolation
 
 import (
 	"os"

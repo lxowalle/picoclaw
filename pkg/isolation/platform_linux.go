@@ -1,6 +1,6 @@
 //go:build linux
 
-package namespace
+package isolation
 
 import (
 	"fmt"
@@ -16,18 +16,20 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 	if !isolation.Enabled {
 		return nil
 	}
+	// Bubblewrap is the only supported Linux backend right now. Fail closed when
+	// it is unavailable instead of silently running the child process unisolated.
 	bwrapPath, err := exec.LookPath("bwrap")
 	if err != nil {
 		hint := bwrapInstallHint()
 		disableHint := `set "isolation.enabled": false in config.json`
-		logger.WarnCF("namespace", "bubblewrap is required for Linux isolation",
+		logger.WarnCF("isolation", "bubblewrap is required for Linux isolation",
 			map[string]any{
 				"binary":            "bwrap",
 				"install":           hint,
 				"disable_isolation": disableHint,
-				"risk":              "disabling isolation lets child processes run without Linux namespace filesystem isolation",
+				"risk":              "disabling isolation lets child processes run without Linux filesystem isolation",
 			})
-		return fmt.Errorf("linux isolation requires bwrap and does not fall back automatically: %w; install bubblewrap with one of: %s; or disable isolation by setting %s; disabling isolation means child processes can run without Linux namespace filesystem isolation and may access or modify more host files", err, hint, disableHint)
+		return fmt.Errorf("linux isolation requires bwrap and does not fall back automatically: %w; install bubblewrap with one of: %s; or disable isolation by setting %s; disabling isolation means child processes can run without Linux filesystem isolation and may access or modify more host files", err, hint, disableHint)
 	}
 	if cmd == nil || cmd.Path == "" || len(cmd.Args) == 0 {
 		return nil
@@ -37,6 +39,9 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 	originalArgs := append([]string{}, cmd.Args...)
 	originalDir := cmd.Dir
 
+	// Start from the configured mount plan, then add the executable, its resolved
+	// path, the working directory, and any absolute path arguments the process may
+	// need at runtime.
 	plan := BuildLinuxMountPlan(root, isolation.ExposePaths)
 	plan = ensureLinuxMountRule(plan, originalPath, originalPath, "ro")
 	plan = ensureLinuxMountRule(plan, filepath.Dir(originalPath), filepath.Dir(originalPath), "ro")
@@ -55,7 +60,7 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 			plan = ensureLinuxPathForArgument(plan, arg)
 		}
 	}
-	logger.DebugCF("namespace", "linux isolation mount plan",
+	logger.DebugCF("isolation", "linux isolation mount plan",
 		map[string]any{
 			"root":        root,
 			"command":     originalPath,
@@ -77,6 +82,7 @@ func bwrapInstallHint() string {
 	return "apt install bubblewrap; dnf install bubblewrap; yum install bubblewrap; pacman -S bubblewrap; apk add bubblewrap"
 }
 
+// formatLinuxMountPlan reshapes the internal plan for structured logging.
 func formatLinuxMountPlan(plan []MountRule) []map[string]string {
 	formatted := make([]map[string]string, 0, len(plan))
 	for _, rule := range plan {
@@ -93,6 +99,8 @@ func postStartPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig,
 	return nil
 }
 
+// buildLinuxBwrapArgs translates the mount plan into the bubblewrap command
+// line that re-executes the original process inside the isolated mount view.
 func buildLinuxBwrapArgs(originalPath string, originalArgs []string, originalDir string, plan []MountRule) ([]string, error) {
 	bwrapArgs := []string{
 		"bwrap",
@@ -118,6 +126,8 @@ func buildLinuxBwrapArgs(originalPath string, originalArgs []string, originalDir
 	return bwrapArgs, nil
 }
 
+// ensureLinuxMountRule appends a mount rule unless another rule already owns
+// the same target path.
 func ensureLinuxMountRule(plan []MountRule, source, target, mode string) []MountRule {
 	cleanSource := filepath.Clean(source)
 	cleanTarget := filepath.Clean(target)
@@ -129,6 +139,7 @@ func ensureLinuxMountRule(plan []MountRule, source, target, mode string) []Mount
 	return append(plan, MountRule{Source: cleanSource, Target: cleanTarget, Mode: mode})
 }
 
+// linuxBindFlag selects the correct bubblewrap bind flag based on mount mode.
 func linuxBindFlag(rule MountRule) (string, error) {
 	info, err := os.Stat(rule.Source)
 	if err != nil {
@@ -146,6 +157,9 @@ func linuxBindFlag(rule MountRule) (string, error) {
 	return "--ro-bind", nil
 }
 
+// ensureLinuxPathForArgument exposes absolute-path arguments conservatively so
+// common CLI flags that point at files or directories keep working in the
+// isolated filesystem view.
 func ensureLinuxPathForArgument(plan []MountRule, arg string) []MountRule {
 	clean := filepath.Clean(arg)
 	if info, err := os.Stat(clean); err == nil {

@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/isolation"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/memory"
-	"github.com/sipeed/picoclaw/pkg/namespace"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/session"
@@ -62,7 +62,9 @@ func NewAgentInstance(
 	provider providers.LLMProvider,
 ) *AgentInstance {
 	if cfg != nil {
-		namespace.Configure(cfg)
+		// Keep the subprocess isolation runtime aligned with the latest loaded config
+		// before any tools or providers start spawning child processes.
+		isolation.Configure(cfg)
 	}
 
 	workspace := resolveAgentWorkspace(agentCfg, defaults)

@@ -24,7 +24,7 @@ var rrCounter atomic.Uint64
 // CurrentVersion is the latest config schema version
 const CurrentVersion = 2
 
-// Config is the current config structure with version support
+// Config is the current config structure with version support.
 type Config struct {
 	Version   int             `json:"version"            yaml:"-"` // Config schema version for migration
 	Isolation IsolationConfig `json:"isolation,omitempty" yaml:"-"`
@@ -46,11 +46,15 @@ type Config struct {
 	sensitiveCache *SensitiveDataCache
 }
 
+// IsolationConfig controls subprocess isolation for commands started by PicoClaw.
+// It is applied by the isolation package rather than by sandboxing the main process.
 type IsolationConfig struct {
 	Enabled     bool         `json:"enabled,omitempty"`
 	ExposePaths []ExposePath `json:"expose_paths,omitempty"`
 }
 
+// ExposePath describes a host path that should remain visible inside the isolated
+// child-process environment.
 type ExposePath struct {
 	Source string `json:"source"`
 	Target string `json:"target,omitempty"`

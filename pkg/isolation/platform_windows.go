@@ -1,6 +1,6 @@
 //go:build windows
 
-package namespace
+package isolation
 
 import (
 	"fmt"
@@ -16,6 +16,8 @@ import (
 
 const disableMaxPrivilege = 0x1
 
+// windowsProcessResources holds native handles that must live for the lifetime
+// of an isolated child process.
 type windowsProcessResources struct {
 	job   windows.Handle
 	token windows.Token
@@ -36,12 +38,14 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	rules := BuildWindowsAccessRules(root, isolation.ExposePaths)
-	logger.InfoCF("namespace", "windows isolation access rules",
+	logger.InfoCF("isolation", "windows isolation access rules",
 		map[string]any{
 			"root":    root,
 			"command": cmd.Path,
 			"rules":   formatWindowsAccessRules(rules),
 		})
+	// Create the restricted token before the process starts so CreateProcess uses
+	// the reduced privilege set from the first instruction.
 	restrictedToken, err := createRestrictedPrimaryToken()
 	if err != nil {
 		return fmt.Errorf("create restricted primary token: %w", err)
@@ -58,6 +62,8 @@ func postStartPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig,
 	}
 	resourcesAny, _ := windowsPendingResources.LoadAndDelete(cmd)
 	resources, _ := resourcesAny.(windowsProcessResources)
+	// Job objects can only be attached after the process exists, so the Windows
+	// backend finishes isolation in this post-start hook.
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		if resources.token != 0 {
@@ -119,6 +125,8 @@ func reapWindowsProcessResources(pid int, proc windows.Handle, job windows.Handl
 	windowsProcessResourcesByPID.Delete(pid)
 }
 
+// createRestrictedPrimaryToken duplicates the current process token, removes
+// maximum privileges, and lowers integrity before it is assigned to a child.
 func createRestrictedPrimaryToken() (windows.Token, error) {
 	var current windows.Token
 	if err := windows.OpenProcessToken(
@@ -156,6 +164,8 @@ func createRestrictedPrimaryToken() (windows.Token, error) {
 	return restricted, nil
 }
 
+// setTokenLowIntegrity lowers the token integrity level so writes to higher
+// integrity locations are blocked by the OS.
 func setTokenLowIntegrity(token windows.Token) error {
 	lowSID, err := windows.CreateWellKnownSid(windows.WinLowLabelSid)
 	if err != nil {
@@ -178,6 +188,7 @@ func setTokenLowIntegrity(token windows.Token) error {
 	return nil
 }
 
+// formatWindowsAccessRules reshapes the internal rules for structured logging.
 func formatWindowsAccessRules(rules []AccessRule) []map[string]string {
 	formatted := make([]map[string]string, 0, len(rules))
 	for _, rule := range rules {

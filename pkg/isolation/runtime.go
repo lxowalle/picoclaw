@@ -1,4 +1,4 @@
-package namespace
+package isolation
 
 import (
 	"fmt"
@@ -13,17 +13,22 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 )
 
+// MountRule describes a source-to-target mount exposed inside the Linux
+// isolation view.
 type MountRule struct {
 	Source string
 	Target string
 	Mode   string
 }
 
+// AccessRule describes the effective Windows-side access rule for a host path.
 type AccessRule struct {
 	Path string
 	Mode string
 }
 
+// UserEnv contains the redirected per-instance user directories injected into
+// isolated child processes.
 type UserEnv struct {
 	Home         string
 	Tmp          string
@@ -40,6 +45,8 @@ var (
 	currentWorkspace = config.DefaultConfig().WorkspacePath()
 )
 
+// Configure updates the process-wide isolation state used by subsequent child
+// process launches.
 func Configure(cfg *config.Config) {
 	isolationMu.Lock()
 	defer isolationMu.Unlock()
@@ -53,18 +60,23 @@ func Configure(cfg *config.Config) {
 	currentWorkspace = filepath.Clean(cfg.WorkspacePath())
 }
 
+// CurrentConfig returns the currently active isolation settings.
 func CurrentConfig() config.IsolationConfig {
 	isolationMu.RLock()
 	defer isolationMu.RUnlock()
 	return currentIsolation
 }
 
+// CurrentWorkspace returns the workspace path currently associated with the
+// configured runtime state.
 func CurrentWorkspace() string {
 	isolationMu.RLock()
 	defer isolationMu.RUnlock()
 	return currentWorkspace
 }
 
+// ResolveInstanceRoot resolves the instance root used to build the isolated
+// filesystem and redirected user environment.
 func ResolveInstanceRoot() (string, error) {
 	root := filepath.Clean(config.GetHome())
 	if root == "." {
@@ -73,6 +85,7 @@ func ResolveInstanceRoot() (string, error) {
 	return root, nil
 }
 
+// PrepareInstanceRoot creates the directories required by the isolation runtime.
 func PrepareInstanceRoot(root string) error {
 	for _, dir := range InstanceDirs(root) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -82,6 +95,8 @@ func PrepareInstanceRoot(root string) error {
 	return nil
 }
 
+// InstanceDirs returns the directories that must exist under the instance root
+// for isolation-aware child processes.
 func InstanceDirs(root string) []string {
 	dirs := []string{
 		root,
@@ -110,6 +125,8 @@ func InstanceDirs(root string) []string {
 	return dirs
 }
 
+// ResolveUserEnv derives the redirected user directories rooted under the
+// instance runtime area.
 func ResolveUserEnv(root string) UserEnv {
 	base := filepath.Join(root, "runtime-user-env")
 	return UserEnv{
@@ -123,6 +140,8 @@ func ResolveUserEnv(root string) UserEnv {
 	}
 }
 
+// ApplyUserEnv rewrites the child process environment so home, temp, and
+// platform-specific user-data directories point into the instance root.
 func ApplyUserEnv(cmd *exec.Cmd, root string) {
 	userEnv := ResolveUserEnv(root)
 	envMap := make(map[string]string)
@@ -154,6 +173,8 @@ func ApplyUserEnv(cmd *exec.Cmd, root string) {
 	cmd.Env = env
 }
 
+// ValidateExposePaths verifies the user-supplied path exposure rules before a
+// child process is started.
 func ValidateExposePaths(items []config.ExposePath) error {
 	seen := map[string]struct{}{}
 	for _, item := range items {
@@ -182,6 +203,8 @@ func ValidateExposePaths(items []config.ExposePath) error {
 	return nil
 }
 
+// NormalizeExposePath fills implicit defaults and cleans path values so merge
+// and validation logic can work with canonical paths.
 func NormalizeExposePath(item config.ExposePath) config.ExposePath {
 	source := filepath.Clean(item.Source)
 	target := item.Target
@@ -195,6 +218,8 @@ func NormalizeExposePath(item config.ExposePath) config.ExposePath {
 	}
 }
 
+// DefaultExposePaths returns the minimum built-in host paths required for the
+// current platform to run isolated child processes.
 func DefaultExposePaths(root string) []config.ExposePath {
 	items := []config.ExposePath{{
 		Source: root,
@@ -213,6 +238,8 @@ func DefaultExposePaths(root string) []config.ExposePath {
 	return items
 }
 
+// MergeExposePaths merges built-in rules with user overrides. Rules are keyed
+// by target path so later entries replace earlier ones for the same target.
 func MergeExposePaths(defaults []config.ExposePath, overrides []config.ExposePath) []config.ExposePath {
 	merged := make([]config.ExposePath, 0, len(defaults)+len(overrides))
 	indexByTarget := make(map[string]int, len(defaults)+len(overrides))
@@ -234,6 +261,8 @@ func MergeExposePaths(defaults []config.ExposePath, overrides []config.ExposePat
 	return merged
 }
 
+// BuildLinuxMountPlan converts the merged expose-path configuration into the
+// mount rules consumed by the Linux bubblewrap backend.
 func BuildLinuxMountPlan(root string, overrides []config.ExposePath) []MountRule {
 	merged := MergeExposePaths(DefaultExposePaths(root), overrides)
 	plan := make([]MountRule, 0, len(merged))
@@ -243,6 +272,8 @@ func BuildLinuxMountPlan(root string, overrides []config.ExposePath) []MountRule
 	return plan
 }
 
+// BuildWindowsAccessRules derives the host-path access policy used by the
+// Windows restricted-token backend.
 func BuildWindowsAccessRules(root string, overrides []config.ExposePath) []AccessRule {
 	rules := []AccessRule{{Path: root, Mode: "rw"}}
 	if userProfile := os.Getenv("USERPROFILE"); userProfile != "" {
@@ -260,6 +291,8 @@ func BuildWindowsAccessRules(root string, overrides []config.ExposePath) []Acces
 	return rules
 }
 
+// IsSupported reports whether the current platform has an implemented isolation
+// backend.
 func IsSupported() bool {
 	switch runtime.GOOS {
 	case "linux", "windows":
@@ -269,6 +302,8 @@ func IsSupported() bool {
 	}
 }
 
+// Preflight validates the configured isolation state and prepares the instance
+// runtime directories before any child process is launched.
 func Preflight() error {
 	isolation := CurrentConfig()
 	if !isolation.Enabled {
@@ -301,6 +336,8 @@ func Preflight() error {
 	return nil
 }
 
+// Start prepares isolation for the command, starts it, and applies any
+// post-start platform hooks required by the active backend.
 func Start(cmd *exec.Cmd) error {
 	if err := PrepareCommand(cmd); err != nil {
 		return err
@@ -325,6 +362,8 @@ func Start(cmd *exec.Cmd) error {
 	return nil
 }
 
+// Run is the Start-and-Wait helper that keeps the same isolation behavior as
+// Start while returning the command's final exit status.
 func Run(cmd *exec.Cmd) error {
 	if err := PrepareCommand(cmd); err != nil {
 		return err
@@ -349,6 +388,8 @@ func Run(cmd *exec.Cmd) error {
 	return cmd.Wait()
 }
 
+// PrepareCommand mutates the command in-place so it inherits the configured
+// isolated environment before being started by the caller.
 func PrepareCommand(cmd *exec.Cmd) error {
 	isolation := CurrentConfig()
 	if err := Preflight(); err != nil {

@@ -1,4 +1,4 @@
-package namespace
+package isolation
 
 import (
 	"os/exec"
