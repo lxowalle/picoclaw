@@ -51,7 +51,12 @@ func TestValidateExposePaths(t *testing.T) {
 		t.Fatal("ValidateExposePaths() expected invalid mode error")
 	}
 
-	err = ValidateExposePaths([]config.ExposePath{{Source: "/src", Target: "/dst", Mode: "ro"}, {Source: "/other", Target: "/dst", Mode: "rw"}})
+	err = ValidateExposePaths(
+		[]config.ExposePath{
+			{Source: "/src", Target: "/dst", Mode: "ro"},
+			{Source: "/other", Target: "/dst", Mode: "rw"},
+		},
+	)
 	if err == nil {
 		t.Fatal("ValidateExposePaths() expected duplicate target error")
 	}
@@ -98,7 +103,10 @@ func TestBuildLinuxMountPlan(t *testing.T) {
 
 func TestBuildWindowsAccessRules(t *testing.T) {
 	t.Setenv("USERPROFILE", `C:\Users\tester`)
-	rules := BuildWindowsAccessRules(`C:\picoclaw`, []config.ExposePath{{Source: `D:\data`, Target: `C:\mapped`, Mode: "ro"}})
+	rules := BuildWindowsAccessRules(
+		`C:\picoclaw`,
+		[]config.ExposePath{{Source: `D:\data`, Target: `C:\mapped`, Mode: "ro"}},
+	)
 	if len(rules) == 0 {
 		t.Fatal("BuildWindowsAccessRules returned empty rules")
 	}

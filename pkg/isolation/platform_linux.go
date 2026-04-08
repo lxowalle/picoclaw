@@ -29,7 +29,12 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 				"disable_isolation": disableHint,
 				"risk":              "disabling isolation lets child processes run without Linux filesystem isolation",
 			})
-		return fmt.Errorf("linux isolation requires bwrap and does not fall back automatically: %w; install bubblewrap with one of: %s; or disable isolation by setting %s; disabling isolation means child processes can run without Linux filesystem isolation and may access or modify more host files", err, hint, disableHint)
+		return fmt.Errorf(
+			"linux isolation requires bwrap and does not fall back automatically: %w; install bubblewrap with one of: %s; or disable isolation by setting %s; disabling isolation means child processes can run without Linux filesystem isolation and may access or modify more host files",
+			err,
+			hint,
+			disableHint,
+		)
 	}
 	if cmd == nil || cmd.Path == "" || len(cmd.Args) == 0 {
 		return nil
@@ -45,13 +50,13 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 	plan := BuildLinuxMountPlan(root, isolation.ExposePaths)
 	plan = ensureLinuxMountRule(plan, originalPath, originalPath, "ro")
 	plan = ensureLinuxMountRule(plan, filepath.Dir(originalPath), filepath.Dir(originalPath), "ro")
-	if resolved, err := filepath.EvalSymlinks(originalPath); err == nil && resolved != originalPath {
+	if resolved, resolveErr := filepath.EvalSymlinks(originalPath); resolveErr == nil && resolved != originalPath {
 		plan = ensureLinuxMountRule(plan, resolved, resolved, "ro")
 		plan = ensureLinuxMountRule(plan, filepath.Dir(resolved), filepath.Dir(resolved), "ro")
 	}
 	if originalDir != "" {
 		plan = ensureLinuxMountRule(plan, originalDir, originalDir, "rw")
-		if resolved, err := filepath.EvalSymlinks(originalDir); err == nil && resolved != originalDir {
+		if resolved, resolveErr := filepath.EvalSymlinks(originalDir); resolveErr == nil && resolved != originalDir {
 			plan = ensureLinuxMountRule(plan, resolved, resolved, "rw")
 		}
 	}
@@ -101,7 +106,12 @@ func postStartPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig,
 
 // buildLinuxBwrapArgs translates the mount plan into the bubblewrap command
 // line that re-executes the original process inside the isolated mount view.
-func buildLinuxBwrapArgs(originalPath string, originalArgs []string, originalDir string, plan []MountRule) ([]string, error) {
+func buildLinuxBwrapArgs(
+	originalPath string,
+	originalArgs []string,
+	originalDir string,
+	plan []MountRule,
+) ([]string, error) {
 	bwrapArgs := []string{
 		"bwrap",
 		"--die-with-parent",

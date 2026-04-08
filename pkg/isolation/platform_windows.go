@@ -9,9 +9,10 @@ import (
 	"syscall"
 	"unsafe"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
-	"golang.org/x/sys/windows"
 )
 
 const disableMaxPrivilege = 0x1
