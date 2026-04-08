@@ -3,10 +3,12 @@
 package isolation
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -42,32 +44,40 @@ func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, roo
 
 	originalPath := cmd.Path
 	originalArgs := append([]string{}, cmd.Args...)
-	originalDir := cmd.Dir
+	_, execDir, err := resolveLinuxWorkingDir(cmd.Dir, originalPath)
+	if err != nil {
+		return err
+	}
+	resolvedPath, err := resolveLinuxCommandPath(originalPath, execDir)
+	if err != nil {
+		return err
+	}
 
 	// Start from the configured mount plan, then add only the executable, its
-	// resolved path, and the working directory. Any additional host paths must be
-	// exposed explicitly via config instead of being inferred from argv.
+	// resolved path, the effective working directory, and any absolute path
+	// arguments needed to preserve the original command semantics.
 	plan := BuildLinuxMountPlan(root, isolation.ExposePaths)
-	plan = ensureLinuxMountRule(plan, originalPath, originalPath, "ro")
-	plan = ensureLinuxMountRule(plan, filepath.Dir(originalPath), filepath.Dir(originalPath), "ro")
-	if resolved, resolveErr := filepath.EvalSymlinks(originalPath); resolveErr == nil && resolved != originalPath {
+	plan = ensureLinuxMountRule(plan, resolvedPath, resolvedPath, "ro")
+	plan = ensureLinuxMountRule(plan, filepath.Dir(resolvedPath), filepath.Dir(resolvedPath), "ro")
+	if resolved, resolveErr := filepath.EvalSymlinks(resolvedPath); resolveErr == nil && resolved != resolvedPath {
 		plan = ensureLinuxMountRule(plan, resolved, resolved, "ro")
 		plan = ensureLinuxMountRule(plan, filepath.Dir(resolved), filepath.Dir(resolved), "ro")
 	}
-	if originalDir != "" {
-		plan = ensureLinuxMountRule(plan, originalDir, originalDir, "rw")
-		if resolved, resolveErr := filepath.EvalSymlinks(originalDir); resolveErr == nil && resolved != originalDir {
+	if execDir != "" {
+		plan = ensureLinuxMountRule(plan, execDir, execDir, "rw")
+		if resolved, resolveErr := filepath.EvalSymlinks(execDir); resolveErr == nil && resolved != execDir {
 			plan = ensureLinuxMountRule(plan, resolved, resolved, "rw")
 		}
 	}
+	plan = appendLinuxArgumentMounts(plan, originalArgs[1:])
 	logger.DebugCF("isolation", "linux isolation mount plan",
 		map[string]any{
 			"root":        root,
-			"command":     originalPath,
-			"working_dir": originalDir,
+			"command":     resolvedPath,
+			"working_dir": execDir,
 			"mounts":      formatLinuxMountPlan(plan),
 		})
-	bwrapArgs, err := buildLinuxBwrapArgs(originalPath, originalArgs, originalDir, plan)
+	bwrapArgs, err := buildLinuxBwrapArgs(originalPath, resolvedPath, originalArgs, execDir, plan)
 	if err != nil {
 		return err
 	}
@@ -106,8 +116,9 @@ func cleanupPendingPlatformResources(cmd *exec.Cmd) {
 // line that re-executes the original process inside the isolated mount view.
 func buildLinuxBwrapArgs(
 	originalPath string,
+	resolvedPath string,
 	originalArgs []string,
-	originalDir string,
+	execDir string,
 	plan []MountRule,
 ) ([]string, error) {
 	bwrapArgs := []string{
@@ -124,14 +135,101 @@ func buildLinuxBwrapArgs(
 		}
 		bwrapArgs = append(bwrapArgs, flag, rule.Source, rule.Target)
 	}
-	if originalDir != "" {
-		bwrapArgs = append(bwrapArgs, "--chdir", originalDir)
+	if execDir != "" {
+		bwrapArgs = append(bwrapArgs, "--chdir", execDir)
 	}
-	bwrapArgs = append(bwrapArgs, "--", originalPath)
+	execPath := originalPath
+	if isRelativeCommandPath(originalPath) {
+		execPath = resolvedPath
+	}
+	bwrapArgs = append(bwrapArgs, "--", execPath)
 	if len(originalArgs) > 1 {
 		bwrapArgs = append(bwrapArgs, originalArgs[1:]...)
 	}
 	return bwrapArgs, nil
+}
+
+func resolveLinuxWorkingDir(originalDir, originalPath string) (string, string, error) {
+	if originalDir != "" {
+		resolved, err := filepath.Abs(originalDir)
+		if err != nil {
+			return "", "", fmt.Errorf("resolve command dir %s: %w", originalDir, err)
+		}
+		return resolved, resolved, nil
+	}
+	if !isRelativeCommandPath(originalPath) {
+		return "", "", nil
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", "", fmt.Errorf("resolve current working dir: %w", err)
+	}
+	return "", wd, nil
+}
+
+func resolveLinuxCommandPath(originalPath, execDir string) (string, error) {
+	if filepath.IsAbs(originalPath) || !isRelativeCommandPath(originalPath) {
+		return filepath.Clean(originalPath), nil
+	}
+	base := execDir
+	if base == "" {
+		var err error
+		base, err = os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve current working dir: %w", err)
+		}
+	}
+	return filepath.Clean(filepath.Join(base, originalPath)), nil
+}
+
+func appendLinuxArgumentMounts(plan []MountRule, args []string) []MountRule {
+	for _, arg := range args {
+		path, ok := linuxArgumentPath(arg)
+		if !ok {
+			continue
+		}
+		clean := filepath.Clean(path)
+		if info, err := os.Stat(clean); err == nil {
+			mode := "ro"
+			if info.IsDir() {
+				mode = "rw"
+			}
+			plan = ensureLinuxMountRule(plan, clean, clean, mode)
+			if resolved, resolveErr := filepath.EvalSymlinks(clean); resolveErr == nil && resolved != clean {
+				plan = ensureLinuxMountRule(plan, resolved, resolved, mode)
+			}
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		parent := filepath.Dir(clean)
+		if parent == clean {
+			continue
+		}
+		if _, err := os.Stat(parent); err == nil {
+			plan = ensureLinuxMountRule(plan, parent, parent, "rw")
+		}
+	}
+	return plan
+}
+
+func linuxArgumentPath(arg string) (string, bool) {
+	if filepath.IsAbs(arg) {
+		return arg, true
+	}
+	idx := strings.IndexRune(arg, '=')
+	if idx <= 0 || idx == len(arg)-1 {
+		return "", false
+	}
+	value := arg[idx+1:]
+	if !filepath.IsAbs(value) {
+		return "", false
+	}
+	return value, true
+}
+
+func isRelativeCommandPath(path string) bool {
+	return !filepath.IsAbs(path) && strings.ContainsRune(path, filepath.Separator)
 }
 
 // ensureLinuxMountRule appends a mount rule unless another rule already owns
