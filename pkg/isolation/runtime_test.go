@@ -142,6 +142,17 @@ func TestBuildWindowsAccessRules(t *testing.T) {
 
 func TestPrepareCommand_AppliesUserEnv(t *testing.T) {
 	t.Setenv(config.EnvHome, filepath.Join(t.TempDir(), "home"))
+	if runtime.GOOS == "linux" {
+		binDir := filepath.Join(t.TempDir(), "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatalf("os.MkdirAll() error = %v", err)
+		}
+		fakeBwrap := filepath.Join(binDir, "bwrap")
+		if err := os.WriteFile(fakeBwrap, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("os.WriteFile() error = %v", err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
 	cfg := config.DefaultConfig()
 	cfg.Isolation.Enabled = true
 	Configure(cfg)
