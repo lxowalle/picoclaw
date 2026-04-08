@@ -17,6 +17,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/namespace"
 )
 
 // headerTransport is an http.RoundTripper that adds custom headers to requests
@@ -365,6 +366,9 @@ func (m *Manager) ConnectServer(
 			env = append(env, fmt.Sprintf("%s=%s", k, v))
 		}
 		cmd.Env = env
+		if err := namespace.PrepareCommand(cmd); err != nil {
+			return fmt.Errorf("prepare stdio MCP isolation: %w", err)
+		}
 
 		transport = &mcp.CommandTransport{Command: cmd}
 	default:

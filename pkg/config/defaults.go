@@ -17,6 +17,9 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		Version: CurrentVersion,
+		Isolation: IsolationConfig{
+			Enabled: false,
+		},
 		Agents: AgentsConfig{
 			Defaults: AgentDefaults{
 				Workspace:                 workspacePath,

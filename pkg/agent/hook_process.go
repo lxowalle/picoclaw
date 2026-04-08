@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/namespace"
 )
 
 const (
@@ -120,7 +121,7 @@ func NewProcessHook(ctx context.Context, name string, opts ProcessHookOptions) (
 	if err != nil {
 		return nil, fmt.Errorf("create process hook stderr: %w", err)
 	}
-	if err := cmd.Start(); err != nil {
+	if err := namespace.Start(cmd); err != nil {
 		return nil, fmt.Errorf("start process hook: %w", err)
 	}
 

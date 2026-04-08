@@ -27,6 +27,7 @@ const CurrentVersion = 2
 // Config is the current config structure with version support
 type Config struct {
 	Version   int             `json:"version"            yaml:"-"` // Config schema version for migration
+	Isolation IsolationConfig `json:"isolation,omitempty" yaml:"-"`
 	Agents    AgentsConfig    `json:"agents"             yaml:"-"`
 	Bindings  []AgentBinding  `json:"bindings,omitempty" yaml:"-"`
 	Session   SessionConfig   `json:"session,omitempty"  yaml:"-"`
@@ -43,6 +44,17 @@ type Config struct {
 
 	// cache for sensitive values and compiled regex (computed once)
 	sensitiveCache *SensitiveDataCache
+}
+
+type IsolationConfig struct {
+	Enabled     bool         `json:"enabled,omitempty"`
+	ExposePaths []ExposePath `json:"expose_paths,omitempty"`
+}
+
+type ExposePath struct {
+	Source string `json:"source"`
+	Target string `json:"target,omitempty"`
+	Mode   string `json:"mode"`
 }
 
 // FilterSensitiveData filters sensitive values from content before sending to LLM.
