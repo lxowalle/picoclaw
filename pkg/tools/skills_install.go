@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/sipeed/picoclaw/pkg/skills"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
+
+const defaultSkillRegistryName = "github"
 
 // InstallSkillTool allows the LLM agent to install skills from registries.
 // It shares the same RegistryManager that FindSkillsTool uses,
@@ -40,7 +43,7 @@ func (t *InstallSkillTool) Name() string {
 }
 
 func (t *InstallSkillTool) Description() string {
-	return "Install a skill from a registry by slug. Downloads and extracts the skill into the workspace. Use find_skills first to discover available skills."
+	return "Install a skill from a registry by slug. Defaults to GitHub when registry is omitted. Downloads and extracts the skill into the workspace. Use find_skills first to discover available skills."
 }
 
 func (t *InstallSkillTool) Parameters() map[string]any {
@@ -57,14 +60,14 @@ func (t *InstallSkillTool) Parameters() map[string]any {
 			},
 			"registry": map[string]any{
 				"type":        "string",
-				"description": "Registry to install from (required, e.g., 'clawhub')",
+				"description": "Registry to install from (optional, defaults to 'github')",
 			},
 			"force": map[string]any{
 				"type":        "boolean",
 				"description": "Force reinstall if skill already exists (default false)",
 			},
 		},
-		"required": []string{"slug", "registry"},
+		"required": []string{"slug"},
 	}
 }
 
@@ -75,9 +78,15 @@ func (t *InstallSkillTool) Execute(ctx context.Context, args map[string]any) *To
 	defer t.mu.Unlock()
 
 	slug, _ := args["slug"].(string)
+	if strings.TrimSpace(slug) == "" {
+		return ErrorResult("identifier is required and must be a non-empty string")
+	}
 
 	// Validate registry
 	registryName, _ := args["registry"].(string)
+	if registryName == "" {
+		registryName = defaultSkillRegistryName
+	}
 	if err := utils.ValidateSkillIdentifier(registryName); err != nil {
 		return ErrorResult(fmt.Sprintf("invalid registry %q: error: %s", registryName, err.Error()))
 	}

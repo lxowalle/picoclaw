@@ -13,7 +13,7 @@ func TestNewInstallSubcommand(t *testing.T) {
 	require.NotNil(t, cmd)
 
 	assert.Equal(t, "install", cmd.Use)
-	assert.Equal(t, "Install skill from configured registry", cmd.Short)
+	assert.Equal(t, "Install skill from GitHub or a registry", cmd.Short)
 
 	assert.Nil(t, cmd.Run)
 	assert.NotNil(t, cmd.RunE)

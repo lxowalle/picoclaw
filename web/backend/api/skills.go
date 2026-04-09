@@ -22,6 +22,8 @@ import (
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
+const defaultInstallSkillRegistry = "github"
+
 type skillSupportResponse struct {
 	Skills []skillSupportItem `json:"skills"`
 }
@@ -291,6 +293,9 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	req.Slug = strings.TrimSpace(req.Slug)
 	req.Registry = strings.TrimSpace(req.Registry)
 	req.Version = strings.TrimSpace(req.Version)
+	if req.Registry == "" {
+		req.Registry = defaultInstallSkillRegistry
+	}
 
 	if validateErr := utils.ValidateSkillIdentifier(req.Registry); validateErr != nil {
 		http.Error(

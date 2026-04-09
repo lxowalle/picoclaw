@@ -150,16 +150,18 @@ func TestInstallSkillToolParameters(t *testing.T) {
 	required, ok := params["required"].([]string)
 	assert.True(t, ok)
 	assert.Contains(t, required, "slug")
-	assert.Contains(t, required, "registry")
+	assert.NotContains(t, required, "registry")
 }
 
 func TestInstallSkillToolMissingRegistry(t *testing.T) {
-	tool := NewInstallSkillTool(skills.NewRegistryManager(), t.TempDir())
+	registryMgr := skills.NewRegistryManager()
+	registryMgr.AddRegistry(&mockGitHubInstallRegistry{})
+	tool := NewInstallSkillTool(registryMgr, t.TempDir())
 	result := tool.Execute(context.Background(), map[string]any{
 		"slug": "some-skill",
 	})
-	assert.True(t, result.IsError)
-	assert.Contains(t, result.ForLLM, "invalid registry")
+	assert.False(t, result.IsError)
+	assert.Contains(t, result.ForLLM, `Successfully installed skill`)
 }
 
 func TestInstallSkillToolAllowsGitHubURLSlug(t *testing.T) {

@@ -13,7 +13,7 @@ func newInstallCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Install skill from configured registry",
+		Short: "Install skill from GitHub or a registry",
 		Example: `
 picoclaw skills install sipeed/picoclaw-skills/weather
 picoclaw skills install --registry clawhub github
