@@ -35,61 +35,32 @@ func skillsListCmd(loader *skills.SkillsLoader) {
 	}
 }
 
-func skillsInstallCmd(installer *skills.SkillInstaller, repo string) error {
-	fmt.Printf("Installing skill from %s...\n", repo)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := installer.InstallFromGitHub(ctx, repo); err != nil {
-		return fmt.Errorf("failed to install skill: %w", err)
-	}
-
-	fmt.Printf("\u2713 Skill '%s' installed successfully!\n", filepath.Base(repo))
-
-	return nil
-}
-
 // skillsInstallFromRegistry installs a skill from a named registry (e.g. clawhub).
-func skillsInstallFromRegistry(cfg *config.Config, registryName, slug string) error {
+func skillsInstallFromRegistry(cfg *config.Config, registryName, target string) error {
 	err := utils.ValidateSkillIdentifier(registryName)
 	if err != nil {
 		return fmt.Errorf("✗  invalid registry name: %w", err)
 	}
 
-	err = utils.ValidateSkillIdentifier(slug)
-	if err != nil {
-		return fmt.Errorf("✗  invalid slug: %w", err)
-	}
-
-	fmt.Printf("Installing skill '%s' from %s registry...\n", slug, registryName)
-
-	clawHubConfig := cfg.Tools.Skills.Registries.ClawHub
-	registryMgr := skills.NewRegistryManagerFromConfig(skills.RegistryConfig{
-		MaxConcurrentSearches: cfg.Tools.Skills.MaxConcurrentSearches,
-		ClawHub: skills.ClawHubConfig{
-			Enabled:         clawHubConfig.Enabled,
-			BaseURL:         clawHubConfig.BaseURL,
-			AuthToken:       clawHubConfig.AuthToken.String(),
-			SearchPath:      clawHubConfig.SearchPath,
-			SkillsPath:      clawHubConfig.SkillsPath,
-			DownloadPath:    clawHubConfig.DownloadPath,
-			Timeout:         clawHubConfig.Timeout,
-			MaxZipSize:      clawHubConfig.MaxZipSize,
-			MaxResponseSize: clawHubConfig.MaxResponseSize,
-		},
-	})
+	registryMgr := skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills)
 
 	registry := registryMgr.GetRegistry(registryName)
 	if registry == nil {
 		return fmt.Errorf("✗  registry '%s' not found or not enabled. check your config.json.", registryName)
 	}
 
+	dirName, err := registry.ResolveInstallDirName(target)
+	if err != nil {
+		return fmt.Errorf("✗  invalid install target %q: %w", target, err)
+	}
+
+	fmt.Printf("Installing skill '%s' from %s registry...\n", target, registryName)
+
 	workspace := cfg.WorkspacePath()
-	targetDir := filepath.Join(workspace, "skills", slug)
+	targetDir := filepath.Join(workspace, "skills", dirName)
 
 	if _, err = os.Stat(targetDir); err == nil {
-		return fmt.Errorf("\u2717 skill '%s' already installed at %s", slug, targetDir)
+		return fmt.Errorf("\u2717 skill '%s' already installed at %s", dirName, targetDir)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -99,7 +70,7 @@ func skillsInstallFromRegistry(cfg *config.Config, registryName, slug string) er
 		return fmt.Errorf("\u2717 failed to create skills directory: %v", err)
 	}
 
-	result, err := registry.DownloadAndInstall(ctx, slug, "", targetDir)
+	result, err := registry.DownloadAndInstall(ctx, target, "", targetDir)
 	if err != nil {
 		rmErr := os.RemoveAll(targetDir)
 		if rmErr != nil {
@@ -114,14 +85,14 @@ func skillsInstallFromRegistry(cfg *config.Config, registryName, slug string) er
 			fmt.Printf("\u2717 Failed to remove partial install: %v\n", rmErr)
 		}
 
-		return fmt.Errorf("\u2717 Skill '%s' is flagged as malicious and cannot be installed.\n", slug)
+		return fmt.Errorf("\u2717 Skill '%s' is flagged as malicious and cannot be installed.\n", target)
 	}
 
 	if result.IsSuspicious {
-		fmt.Printf("\u26a0\ufe0f  Warning: skill '%s' is flagged as suspicious.\n", slug)
+		fmt.Printf("\u26a0\ufe0f  Warning: skill '%s' is flagged as suspicious.\n", target)
 	}
 
-	fmt.Printf("\u2713 Skill '%s' v%s installed successfully!\n", slug, result.Version)
+	fmt.Printf("\u2713 Skill '%s' v%s installed successfully!\n", dirName, result.Version)
 	if result.Summary != "" {
 		fmt.Printf("  %s\n", result.Summary)
 	}
@@ -237,21 +208,7 @@ func skillsSearchCmd(query string) {
 		return
 	}
 
-	clawHubConfig := cfg.Tools.Skills.Registries.ClawHub
-	registryMgr := skills.NewRegistryManagerFromConfig(skills.RegistryConfig{
-		MaxConcurrentSearches: cfg.Tools.Skills.MaxConcurrentSearches,
-		ClawHub: skills.ClawHubConfig{
-			Enabled:         clawHubConfig.Enabled,
-			BaseURL:         clawHubConfig.BaseURL,
-			AuthToken:       clawHubConfig.AuthToken.String(),
-			SearchPath:      clawHubConfig.SearchPath,
-			SkillsPath:      clawHubConfig.SkillsPath,
-			DownloadPath:    clawHubConfig.DownloadPath,
-			Timeout:         clawHubConfig.Timeout,
-			MaxZipSize:      clawHubConfig.MaxZipSize,
-			MaxResponseSize: clawHubConfig.MaxResponseSize,
-		},
-	})
+	registryMgr := skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -1738,7 +1738,7 @@ func TestFilterSensitiveData_AllTokenTypes(t *testing.T) {
 			Skills: SkillsToolsConfig{
 				Github: SkillsGithubConfig{Token: *NewSecureString("github-token-xyz")},
 				Registries: SkillsRegistriesConfig{
-					ClawHub: ClawHubRegistryConfig{AuthToken: *NewSecureString("clawhub-auth-token")},
+					&SkillRegistryConfig{Name: "clawhub", AuthToken: *NewSecureString("clawhub-auth-token")},
 				},
 			},
 		},

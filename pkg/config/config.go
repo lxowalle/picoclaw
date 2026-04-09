@@ -837,11 +837,12 @@ type ExecConfig struct {
 }
 
 type SkillsToolsConfig struct {
-	ToolConfig            `                       yaml:"-"                 envPrefix:"PICOCLAW_TOOLS_SKILLS_"`
-	Registries            SkillsRegistriesConfig `yaml:",inline,omitempty"                                    json:"registries"`
-	Github                SkillsGithubConfig     `yaml:"github,omitempty"                                     json:"github"`
-	MaxConcurrentSearches int                    `yaml:"-"                                                    json:"max_concurrent_searches" env:"PICOCLAW_TOOLS_SKILLS_MAX_CONCURRENT_SEARCHES"`
-	SearchCache           SearchCacheConfig      `yaml:"-"                                                    json:"search_cache"`
+	ToolConfig `                       yaml:"-"                    envPrefix:"PICOCLAW_TOOLS_SKILLS_"`
+	Registries SkillsRegistriesConfig `yaml:"registries,omitempty"                                    json:"registries"`
+	// Deprecated: use registries.github instead.
+	Github                SkillsGithubConfig `yaml:"github,omitempty" json:"github"`
+	MaxConcurrentSearches int                `yaml:"-"                json:"max_concurrent_searches" env:"PICOCLAW_TOOLS_SKILLS_MAX_CONCURRENT_SEARCHES"`
+	SearchCache           SearchCacheConfig  `yaml:"-"                json:"search_cache"`
 }
 
 type MediaCleanupConfig struct {
@@ -925,25 +926,70 @@ type SearchCacheConfig struct {
 	TTLSeconds int `json:"ttl_seconds" env:"PICOCLAW_SKILLS_SEARCH_CACHE_TTL_SECONDS"`
 }
 
-type SkillsRegistriesConfig struct {
-	ClawHub ClawHubRegistryConfig `json:"clawhub" yaml:"clawhub,omitempty"`
+type SkillsRegistriesConfig []*SkillRegistryConfig
+
+func (c *SkillsRegistriesConfig) Get(name string) (SkillRegistryConfig, bool) {
+	if c == nil {
+		return SkillRegistryConfig{}, false
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return SkillRegistryConfig{}, false
+	}
+	for _, registry := range *c {
+		if registry == nil || registry.Name != name {
+			continue
+		}
+		return *registry, true
+	}
+	return SkillRegistryConfig{}, false
+}
+
+func (c *SkillsRegistriesConfig) Set(name string, cfg SkillRegistryConfig) {
+	if c == nil {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	cfg.Name = name
+	for i, registry := range *c {
+		if registry == nil || registry.Name != name {
+			continue
+		}
+		(*c)[i] = &cfg
+		return
+	}
+	*c = append(*c, &cfg)
 }
 
 type SkillsGithubConfig struct {
-	Token SecureString `json:"token,omitzero"  yaml:"token,omitempty" env:"PICOCLAW_TOOLS_SKILLS_GITHUB_TOKEN"`
-	Proxy string       `json:"proxy,omitempty" yaml:"-"               env:"PICOCLAW_TOOLS_SKILLS_GITHUB_PROXY"`
+	BaseURL string       `json:"base_url,omitempty" yaml:"-"               env:"PICOCLAW_TOOLS_SKILLS_GITHUB_BASE_URL"`
+	Token   SecureString `json:"token,omitzero"     yaml:"token,omitempty" env:"PICOCLAW_TOOLS_SKILLS_GITHUB_TOKEN"`
+	Proxy   string       `json:"proxy,omitempty"    yaml:"-"               env:"PICOCLAW_TOOLS_SKILLS_GITHUB_PROXY"`
 }
 
-type ClawHubRegistryConfig struct {
-	Enabled         bool         `json:"enabled"             yaml:"-"                    env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_ENABLED"`
-	BaseURL         string       `json:"base_url"            yaml:"-"                    env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"`
-	AuthToken       SecureString `json:"auth_token,omitzero" yaml:"auth_token,omitempty" env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"`
-	SearchPath      string       `json:"search_path"         yaml:"-"                    env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"`
-	SkillsPath      string       `json:"skills_path"         yaml:"-"                    env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"`
-	DownloadPath    string       `json:"download_path"       yaml:"-"                    env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"`
-	Timeout         int          `json:"timeout"             yaml:"-"                    env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"`
-	MaxZipSize      int          `json:"max_zip_size"        yaml:"-"                    env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"`
-	MaxResponseSize int          `json:"max_response_size"   yaml:"-"                    env:"PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"`
+type SkillRegistryConfig struct {
+	Name      string         `json:"name,omitempty"      yaml:"-"                    env:"-"`
+	Enabled   bool           `json:"enabled"             yaml:"-"                    env:"-"`
+	BaseURL   string         `json:"base_url"            yaml:"-"                    env:"-"`
+	AuthToken SecureString   `json:"auth_token,omitzero" yaml:"auth_token,omitempty" env:"-"`
+	Param     map[string]any `json:"-"                   yaml:"-"                    env:"-"`
+}
+
+func (c *SkillRegistryConfig) DecodeParam(target any) error {
+	if c == nil {
+		return nil
+	}
+	if len(c.Param) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(c.Param)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, target)
 }
 
 // MCPServerConfig defines configuration for a single MCP server

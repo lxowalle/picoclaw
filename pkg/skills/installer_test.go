@@ -197,6 +197,16 @@ func TestNewSkillInstaller(t *testing.T) {
 		t.Errorf("githubToken = %v, want 'test-token'", installer.githubToken)
 	}
 
+	if installer.githubBaseURL != "https://github.com" {
+		t.Errorf("githubBaseURL = %v, want https://github.com", installer.githubBaseURL)
+	}
+	if installer.githubAPIBaseURL != "https://api.github.com" {
+		t.Errorf("githubAPIBaseURL = %v, want https://api.github.com", installer.githubAPIBaseURL)
+	}
+	if installer.githubRawBaseURL != "https://raw.githubusercontent.com" {
+		t.Errorf("githubRawBaseURL = %v, want https://raw.githubusercontent.com", installer.githubRawBaseURL)
+	}
+
 	if installer.proxy != "" {
 		t.Errorf("proxy = %v, want empty", installer.proxy)
 	}
@@ -231,6 +241,24 @@ func TestNewSkillInstaller_WithProxy(t *testing.T) {
 
 	if transport.Proxy == nil {
 		t.Error("transport.Proxy is nil, expected non-nil")
+	}
+}
+
+func TestNewSkillInstaller_WithBaseURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	installer, err := NewSkillInstallerWithBaseURL(tmpDir, "https://github.example.com", "test-token", "")
+	if err != nil {
+		t.Fatalf("NewSkillInstallerWithBaseURL() error = %v", err)
+	}
+
+	if installer.githubBaseURL != "https://github.example.com" {
+		t.Errorf("githubBaseURL = %v, want https://github.example.com", installer.githubBaseURL)
+	}
+	if installer.githubAPIBaseURL != "https://github.example.com/api/v3" {
+		t.Errorf("githubAPIBaseURL = %v, want https://github.example.com/api/v3", installer.githubAPIBaseURL)
+	}
+	if installer.githubRawBaseURL != "https://github.example.com/raw" {
+		t.Errorf("githubRawBaseURL = %v, want https://github.example.com/raw", installer.githubRawBaseURL)
 	}
 }
 

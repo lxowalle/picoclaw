@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -293,14 +292,6 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	req.Registry = strings.TrimSpace(req.Registry)
 	req.Version = strings.TrimSpace(req.Version)
 
-	if validateErr := utils.ValidateSkillIdentifier(req.Slug); validateErr != nil {
-		http.Error(
-			w,
-			fmt.Sprintf("invalid slug %q: error: %s", req.Slug, validateErr.Error()),
-			http.StatusBadRequest,
-		)
-		return
-	}
 	if validateErr := utils.ValidateSkillIdentifier(req.Registry); validateErr != nil {
 		http.Error(
 			w,
@@ -316,10 +307,15 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("registry %q not found", req.Registry), http.StatusBadRequest)
 		return
 	}
+	dirName, err := registry.ResolveInstallDirName(req.Slug)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid slug %q: error: %s", req.Slug, err.Error()), http.StatusBadRequest)
+		return
+	}
 
 	workspace := cfg.WorkspacePath()
 	skillsRoot := filepath.Join(workspace, "skills")
-	targetDir := filepath.Join(workspace, "skills", req.Slug)
+	targetDir := filepath.Join(workspace, "skills", dirName)
 	workspaceSkillWriteMu.Lock()
 	defer workspaceSkillWriteMu.Unlock()
 
@@ -332,15 +328,15 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !req.Force && targetExists {
-		http.Error(w, fmt.Sprintf("skill %q already installed at %s", req.Slug, targetDir), http.StatusConflict)
+		http.Error(w, fmt.Sprintf("skill %q already installed at %s", dirName, targetDir), http.StatusConflict)
 		return
 	}
-	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create skills directory: %v", err), http.StatusInternalServerError)
+	if mkdirErr := os.MkdirAll(skillsRoot, 0o755); mkdirErr != nil {
+		http.Error(w, fmt.Sprintf("Failed to create skills directory: %v", mkdirErr), http.StatusInternalServerError)
 		return
 	}
 
-	stagedWorkspaceRoot, stagedTargetDir, err := createStagedSkillInstall(skillsRoot, req.Slug)
+	stagedWorkspaceRoot, stagedTargetDir, err := createStagedSkillInstall(skillsRoot, dirName)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to prepare staged install: %v", err), http.StatusInternalServerError)
 		return
@@ -361,7 +357,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if findWorkspaceSkillInfoByDirectory(stagedWorkspaceRoot, req.Slug) == nil {
+	if findWorkspaceSkillInfoByDirectory(stagedWorkspaceRoot, dirName) == nil {
 		http.Error(
 			w,
 			fmt.Sprintf("Failed to install skill: registry archive for %q is not a valid skill", req.Slug),
@@ -394,7 +390,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validatedSkill := findWorkspaceSkillByDirectory(cfg, req.Slug)
+	validatedSkill := findWorkspaceSkillByDirectory(cfg, dirName)
 	if validatedSkill == nil {
 		http.Error(
 			w,
@@ -511,21 +507,7 @@ func newSkillsLoader(workspace string) *skills.SkillsLoader {
 }
 
 func newSkillsRegistryManager(cfg *config.Config) *skills.RegistryManager {
-	clawHubConfig := cfg.Tools.Skills.Registries.ClawHub
-	return skills.NewRegistryManagerFromConfig(skills.RegistryConfig{
-		MaxConcurrentSearches: cfg.Tools.Skills.MaxConcurrentSearches,
-		ClawHub: skills.ClawHubConfig{
-			Enabled:         clawHubConfig.Enabled,
-			BaseURL:         clawHubConfig.BaseURL,
-			AuthToken:       clawHubConfig.AuthToken.String(),
-			SearchPath:      clawHubConfig.SearchPath,
-			SkillsPath:      clawHubConfig.SkillsPath,
-			DownloadPath:    clawHubConfig.DownloadPath,
-			Timeout:         clawHubConfig.Timeout,
-			MaxZipSize:      clawHubConfig.MaxZipSize,
-			MaxResponseSize: clawHubConfig.MaxResponseSize,
-		},
-	})
+	return skills.NewRegistryManagerFromToolsConfig(cfg.Tools.Skills)
 }
 
 func ensureSkillRegistryToolEnabled(cfg *config.Config, toolName string) error {
@@ -740,16 +722,14 @@ func writeSkillOriginMeta(targetDir string, meta installedSkillOriginMeta) error
 }
 
 func registrySkillURL(cfg *config.Config, registryName, slug string) string {
-	switch registryName {
-	case "clawhub":
-		baseURL := strings.TrimRight(cfg.Tools.Skills.Registries.ClawHub.BaseURL, "/")
-		if baseURL == "" {
-			baseURL = "https://clawhub.ai"
-		}
-		return baseURL + "/skills/" + url.PathEscape(slug)
-	default:
+	if cfg == nil || registryName == "" || slug == "" {
 		return ""
 	}
+	registry := skills.LookupRegistryFromToolsConfig(cfg.Tools.Skills, registryName)
+	if registry == nil {
+		return ""
+	}
+	return registry.SkillURL(slug)
 }
 
 func registrySkillURLFromMeta(cfg *config.Config, meta *installedSkillOriginMeta) string {

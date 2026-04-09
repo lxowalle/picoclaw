@@ -24,6 +24,10 @@ type mockRegistry struct {
 
 func (m *mockRegistry) Name() string { return m.name }
 
+func (m *mockRegistry) ResolveInstallDirName(target string) (string, error) { return target, nil }
+
+func (m *mockRegistry) SkillURL(slug string) string { return "https://example.com/skills/" + slug }
+
 func (m *mockRegistry) Search(_ context.Context, _ string, _ int) ([]SearchResult, error) {
 	return m.searchResults, m.searchErr
 }
@@ -168,6 +172,31 @@ func TestSortByScoreDesc(t *testing.T) {
 	assert.Equal(t, "a", results[0].Slug)
 	assert.Equal(t, "b", results[1].Slug)
 	assert.Equal(t, "c", results[2].Slug)
+}
+
+type mockProvider struct {
+	enabled  bool
+	registry SkillRegistry
+}
+
+func (m mockProvider) IsEnabled() bool {
+	return m.enabled
+}
+
+func (m mockProvider) BuildRegistry() SkillRegistry {
+	return m.registry
+}
+
+func TestNewRegistryManagerFromConfigProviders(t *testing.T) {
+	mgr := NewRegistryManagerFromConfig(RegistryConfig{
+		Providers: []RegistryProvider{
+			mockProvider{enabled: true, registry: &mockRegistry{name: "alpha"}},
+			mockProvider{enabled: false, registry: &mockRegistry{name: "beta"}},
+		},
+	})
+
+	assert.NotNil(t, mgr.GetRegistry("alpha"))
+	assert.Nil(t, mgr.GetRegistry("beta"))
 }
 
 func TestIsSafeSlug(t *testing.T) {

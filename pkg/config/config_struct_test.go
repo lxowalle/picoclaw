@@ -143,3 +143,63 @@ func TestLoadSecurityValue(t *testing.T) {
 	assert.NotNil(t, v6.Tools.Pico.Token)
 	assert.Equal(t, "newtoken1", v6.Tools.Pico.Token.String())
 }
+
+func TestSkillRegistryConfigDecodeParam(t *testing.T) {
+	registry := SkillRegistryConfig{
+		Name: "github",
+		Param: map[string]any{
+			"proxy": "http://127.0.0.1:7890",
+		},
+	}
+
+	var private struct {
+		Proxy string `json:"proxy"`
+	}
+	err := registry.DecodeParam(&private)
+	assert.NoError(t, err)
+	assert.Equal(t, "http://127.0.0.1:7890", private.Proxy)
+}
+
+func TestSkillRegistryConfigJSONFlattensParam(t *testing.T) {
+	registry := SkillRegistryConfig{
+		Name:    "github",
+		Enabled: true,
+		BaseURL: "https://github.com",
+		Param: map[string]any{
+			"proxy": "http://127.0.0.1:7890",
+		},
+	}
+
+	data, err := json.Marshal(registry)
+	assert.NoError(t, err)
+	assert.Contains(t, string(data), `"proxy":"http://127.0.0.1:7890"`)
+	assert.NotContains(t, string(data), `"param"`)
+
+	var loaded SkillRegistryConfig
+	err = json.Unmarshal(data, &loaded)
+	assert.NoError(t, err)
+	assert.Equal(t, "http://127.0.0.1:7890", loaded.Param["proxy"])
+}
+
+func TestSkillsRegistriesConfigMarshalYAMLIncludesRegistryToken(t *testing.T) {
+	registries := SkillsRegistriesConfig{
+		&SkillRegistryConfig{
+			Name:      "github",
+			AuthToken: *NewSecureString("registry-auth-token"),
+		},
+	}
+
+	data, err := yaml.Marshal(registries)
+	assert.NoError(t, err)
+	assert.Contains(t, string(data), "github:")
+	assert.Contains(t, string(data), "auth_token: registry-auth-token")
+
+	loaded := SkillsRegistriesConfig{
+		&SkillRegistryConfig{Name: "github"},
+	}
+	err = yaml.Unmarshal(data, &loaded)
+	assert.NoError(t, err)
+	github, ok := loaded.Get("github")
+	assert.True(t, ok)
+	assert.Equal(t, "registry-auth-token", github.AuthToken.String())
+}

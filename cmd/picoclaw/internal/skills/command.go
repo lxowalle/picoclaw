@@ -29,15 +29,6 @@ func NewSkillsCommand() *cobra.Command {
 			}
 
 			d.workspace = cfg.WorkspacePath()
-			installer, err := skills.NewSkillInstaller(
-				d.workspace,
-				cfg.Tools.Skills.Github.Token.String(),
-				cfg.Tools.Skills.Github.Proxy,
-			)
-			if err != nil {
-				return fmt.Errorf("error creating skills installer: %w", err)
-			}
-			d.installer = installer
 
 			// get global config directory and builtin skills directory
 			globalDir := filepath.Dir(internal.GetConfigPath())
@@ -53,6 +44,13 @@ func NewSkillsCommand() *cobra.Command {
 	}
 
 	installerFn := func() (*skills.SkillInstaller, error) {
+		if d.installer == nil {
+			installer, err := skills.NewSkillInstaller(d.workspace, "", "")
+			if err != nil {
+				return nil, fmt.Errorf("error creating skills installer: %w", err)
+			}
+			d.installer = installer
+		}
 		if d.installer == nil {
 			return nil, fmt.Errorf("skills installer is not initialized")
 		}
@@ -75,7 +73,7 @@ func NewSkillsCommand() *cobra.Command {
 
 	cmd.AddCommand(
 		newListCommand(loaderFn),
-		newInstallCommand(installerFn),
+		newInstallCommand(),
 		newInstallBuiltinCommand(workspaceFn),
 		newListBuiltinCommand(),
 		newRemoveCommand(installerFn),

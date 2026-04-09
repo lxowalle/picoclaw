@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/fileutil"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -33,25 +34,106 @@ type GitHubRef struct {
 }
 
 type SkillInstaller struct {
-	workspace   string
-	client      *http.Client
-	githubToken string
-	proxy       string
+	workspace        string
+	client           *http.Client
+	githubBaseURL    string
+	githubAPIBaseURL string
+	githubRawBaseURL string
+	githubToken      string
+	proxy            string
 }
 
 // NewSkillInstaller creates a new skill installer.
 // proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL for downloading skills.
 func NewSkillInstaller(workspace, githubToken, proxy string) (*SkillInstaller, error) {
+	return NewSkillInstallerWithBaseURL(workspace, "", githubToken, proxy)
+}
+
+// NewSkillInstallerWithBaseURL creates a new skill installer with a custom GitHub base URL.
+// For github.com this can be left empty. For GitHub Enterprise, set it to the web URL.
+func NewSkillInstallerWithBaseURL(workspace, githubBaseURL, githubToken, proxy string) (*SkillInstaller, error) {
 	client, err := utils.CreateHTTPClient(proxy, 15*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
+	endpoints, err := resolveGitHubEndpoints(githubBaseURL)
+	if err != nil {
+		return nil, err
+	}
 
 	return &SkillInstaller{
-		workspace:   workspace,
-		client:      client,
-		githubToken: githubToken,
-		proxy:       proxy,
+		workspace:        workspace,
+		client:           client,
+		githubBaseURL:    endpoints.WebBaseURL,
+		githubAPIBaseURL: endpoints.APIBaseURL,
+		githubRawBaseURL: endpoints.RawBaseURL,
+		githubToken:      githubToken,
+		proxy:            proxy,
+	}, nil
+}
+
+type gitHubEndpoints struct {
+	WebBaseURL string
+	APIBaseURL string
+	RawBaseURL string
+}
+
+func resolveGitHubEndpoints(baseURL string) (gitHubEndpoints, error) {
+	trimmed := strings.TrimSpace(baseURL)
+	if trimmed == "" {
+		return gitHubEndpoints{
+			WebBaseURL: "https://github.com",
+			APIBaseURL: "https://api.github.com",
+			RawBaseURL: "https://raw.githubusercontent.com",
+		}, nil
+	}
+
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return gitHubEndpoints{}, fmt.Errorf("invalid github base url: %w", err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return gitHubEndpoints{}, fmt.Errorf("invalid github base url %q", baseURL)
+	}
+
+	trimmedPath := strings.TrimSuffix(u.Path, "/")
+	origin := u.Scheme + "://" + u.Host
+
+	if u.Host == "api.github.com" {
+		return gitHubEndpoints{
+			WebBaseURL: "https://github.com",
+			APIBaseURL: "https://api.github.com",
+			RawBaseURL: "https://raw.githubusercontent.com",
+		}, nil
+	}
+
+	if strings.HasSuffix(trimmedPath, "/api/v3") {
+		webBaseURL := origin + strings.TrimSuffix(trimmedPath, "/api/v3")
+		webBaseURL = strings.TrimSuffix(webBaseURL, "/")
+		if webBaseURL == origin {
+			webBaseURL = origin
+		}
+		return gitHubEndpoints{
+			WebBaseURL: webBaseURL,
+			APIBaseURL: origin + trimmedPath,
+			RawBaseURL: webBaseURL + "/raw",
+		}, nil
+	}
+
+	webBaseURL := origin + trimmedPath
+	webBaseURL = strings.TrimSuffix(webBaseURL, "/")
+	if u.Host == "github.com" {
+		return gitHubEndpoints{
+			WebBaseURL: "https://github.com",
+			APIBaseURL: "https://api.github.com",
+			RawBaseURL: "https://raw.githubusercontent.com",
+		}, nil
+	}
+
+	return gitHubEndpoints{
+		WebBaseURL: webBaseURL,
+		APIBaseURL: webBaseURL + "/api/v3",
+		RawBaseURL: webBaseURL + "/raw",
 	}, nil
 }
 
@@ -104,20 +186,44 @@ func parseGitHubRef(repo string) (GitHubRef, error) {
 	return ref, nil
 }
 
-func (si *SkillInstaller) InstallFromGitHub(ctx context.Context, repo string) error {
+func githubInstallDirName(repo string) (string, error) {
+	if err := ValidateInstallTarget(repo); err != nil {
+		return "", err
+	}
 	ref, err := parseGitHubRef(repo)
+	if err != nil {
+		return "", err
+	}
+	if ref.SubPath != "" {
+		return filepath.Base(ref.SubPath), nil
+	}
+	return ref.RepoName, nil
+}
+
+func (si *SkillInstaller) InstallFromGitHub(ctx context.Context, repo string) error {
+	skillName, err := githubInstallDirName(repo)
 	if err != nil {
 		return err
 	}
-
-	skillName := ref.RepoName
-	if ref.SubPath != "" {
-		skillName = filepath.Base(ref.SubPath)
-	}
 	skillDirectory := filepath.Join(si.workspace, "skills", skillName)
 
-	if _, err := os.Stat(skillDirectory); err == nil {
+	if _, statErr := os.Stat(skillDirectory); statErr == nil {
 		return fmt.Errorf("skill '%s' already exists", skillName)
+	}
+	_, err = si.InstallFromGitHubToDir(ctx, repo, "", skillDirectory)
+	return err
+}
+
+func (si *SkillInstaller) InstallFromGitHubToDir(
+	ctx context.Context,
+	repo, version, skillDirectory string,
+) (*InstallResult, error) {
+	ref, err := parseGitHubRef(repo)
+	if err != nil {
+		return nil, err
+	}
+	if version != "" {
+		ref.Ref = version
 	}
 
 	// Build GitHub API URL
@@ -125,17 +231,25 @@ func (si *SkillInstaller) InstallFromGitHub(ctx context.Context, repo string) er
 	if ref.SubPath != "" {
 		apiPath = path.Join(apiPath, ref.SubPath)
 	}
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s?ref=%s", apiPath, ref.Ref)
+	apiURL := fmt.Sprintf("%s/repos/%s?ref=%s", si.githubAPIBaseURL, apiPath, url.QueryEscape(ref.Ref))
 
 	if err := si.getGithubDirAllFiles(ctx, apiURL, skillDirectory, true); err != nil {
 		// Fallback to raw download
-		return si.downloadRaw(ctx, ref.Owner, ref.RepoName, ref.Ref, ref.SubPath, skillDirectory)
+		if downloadErr := si.downloadRaw(
+			ctx,
+			ref.Owner,
+			ref.RepoName,
+			ref.Ref,
+			ref.SubPath,
+			skillDirectory,
+		); downloadErr != nil {
+			return nil, downloadErr
+		}
+	} else if _, err := os.Stat(filepath.Join(skillDirectory, "SKILL.md")); err != nil {
+		return nil, fmt.Errorf("SKILL.md not found in repository")
 	}
 
-	if _, err := os.Stat(filepath.Join(skillDirectory, "SKILL.md")); err != nil {
-		return fmt.Errorf("SKILL.md not found in repository")
-	}
-	return nil
+	return &InstallResult{Version: ref.Ref}, nil
 }
 
 // downloadDir recursively downloads a directory from GitHub API
@@ -193,7 +307,7 @@ func (si *SkillInstaller) downloadRaw(ctx context.Context, owner, repo, ref, sub
 	if subPath != "" {
 		urlPath = path.Join(urlPath, subPath)
 	}
-	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/SKILL.md", urlPath)
+	url := fmt.Sprintf("%s/%s/SKILL.md", si.githubRawBaseURL, urlPath)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -213,12 +327,10 @@ func (si *SkillInstaller) downloadRaw(ctx context.Context, owner, repo, ref, sub
 
 	localPath := filepath.Join(localDir, "SKILL.md")
 
-	// Atomic move from temp to final location.
-	if err := os.Rename(tmpPath, localPath); err != nil {
+	if err := fileutil.CopyFile(tmpPath, localPath, 0o600); err != nil {
 		return fmt.Errorf("failed to write skill file: %w", err)
 	}
-
-	return os.Chmod(localPath, 0o600)
+	return nil
 }
 
 func (si *SkillInstaller) downloadFile(ctx context.Context, url, localPath string) error {
@@ -238,12 +350,10 @@ func (si *SkillInstaller) downloadFile(ctx context.Context, url, localPath strin
 		return err
 	}
 
-	// Atomic move from temp to final location.
-	if err := os.Rename(tmpPath, localPath); err != nil {
+	if err := fileutil.CopyFile(tmpPath, localPath, 0o600); err != nil {
 		return fmt.Errorf("failed to move downloaded file: %w", err)
 	}
-
-	return os.Chmod(localPath, 0o600)
+	return nil
 }
 
 // shouldDownload determines if a file should be downloaded

@@ -18,6 +18,12 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 )
 
+func setClawHubBaseURL(cfg *config.Config, baseURL string) {
+	registryCfg, _ := cfg.Tools.Skills.Registries.Get("clawhub")
+	registryCfg.BaseURL = baseURL
+	cfg.Tools.Skills.Registries.Set("clawhub", registryCfg)
+}
+
 func TestHandleListSkills(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
@@ -583,7 +589,7 @@ func TestHandleSearchSkills(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg.Tools.Skills.Registries.ClawHub.BaseURL = server.URL
+	setClawHubBaseURL(cfg, server.URL)
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
@@ -681,7 +687,7 @@ func TestHandleSearchSkillsPagination(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg.Tools.Skills.Registries.ClawHub.BaseURL = server.URL
+	setClawHubBaseURL(cfg, server.URL)
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
@@ -755,7 +761,7 @@ func TestHandleSearchSkillsClampsRegistryFanout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg.Tools.Skills.Registries.ClawHub.BaseURL = server.URL
+	setClawHubBaseURL(cfg, server.URL)
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
@@ -838,7 +844,7 @@ func TestHandleInstallSkill(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg.Tools.Skills.Registries.ClawHub.BaseURL = server.URL
+	setClawHubBaseURL(cfg, server.URL)
 	if saveErr := config.SaveConfig(configPath, cfg); saveErr != nil {
 		t.Fatalf("SaveConfig() error = %v", saveErr)
 	}
@@ -972,7 +978,7 @@ func TestHandleInstallSkillForcePreservesExistingSkillOnFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg.Tools.Skills.Registries.ClawHub.BaseURL = server.URL
+	setClawHubBaseURL(cfg, server.URL)
 	if saveErr := config.SaveConfig(configPath, cfg); saveErr != nil {
 		t.Fatalf("SaveConfig() error = %v", saveErr)
 	}
@@ -1047,7 +1053,7 @@ func TestHandleInstallSkillRollsBackOnOriginMetadataWriteFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg.Tools.Skills.Registries.ClawHub.BaseURL = server.URL
+	setClawHubBaseURL(cfg, server.URL)
 	if saveErr := config.SaveConfig(configPath, cfg); saveErr != nil {
 		t.Fatalf("SaveConfig() error = %v", saveErr)
 	}
@@ -1135,7 +1141,7 @@ func TestHandleInstallSkillSerializesConcurrentRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg.Tools.Skills.Registries.ClawHub.BaseURL = server.URL
+	setClawHubBaseURL(cfg, server.URL)
 	if saveErr := config.SaveConfig(configPath, cfg); saveErr != nil {
 		t.Fatalf("SaveConfig() error = %v", saveErr)
 	}
@@ -1248,7 +1254,7 @@ func TestHandleImportSkillWaitsForConcurrentInstall(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg.Tools.Skills.Registries.ClawHub.BaseURL = server.URL
+	setClawHubBaseURL(cfg, server.URL)
 	if saveErr := config.SaveConfig(configPath, cfg); saveErr != nil {
 		t.Fatalf("SaveConfig() error = %v", saveErr)
 	}
@@ -1365,7 +1371,7 @@ func TestHandleInstallSkillRejectsInvalidArchive(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg.Tools.Skills.Registries.ClawHub.BaseURL = server.URL
+	setClawHubBaseURL(cfg, server.URL)
 	if saveErr := config.SaveConfig(configPath, cfg); saveErr != nil {
 		t.Fatalf("SaveConfig() error = %v", saveErr)
 	}

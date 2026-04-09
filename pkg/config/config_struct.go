@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 
@@ -320,6 +321,202 @@ func (v SecureModelList) MarshalYAML() (any, error) {
 	for i, m := range v {
 		mm[nameList[i]] = onlySecureData{
 			APIKeys: m.APIKeys,
+		}
+	}
+
+	return mm, nil
+}
+
+func (v *SkillsRegistriesConfig) UnmarshalJSON(data []byte) error {
+	var list []*SkillRegistryConfig
+	if err := json.Unmarshal(data, &list); err == nil {
+		*v = list
+		return nil
+	}
+
+	legacy := map[string]*SkillRegistryConfig{}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+
+	list = make([]*SkillRegistryConfig, 0, len(legacy))
+	for name, registry := range legacy {
+		if registry == nil {
+			continue
+		}
+		registry.Name = name
+		list = append(list, registry)
+	}
+	*v = list
+	return nil
+}
+
+func (c *SkillRegistryConfig) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		Name      string         `json:"name,omitempty"`
+		Enabled   bool           `json:"enabled"`
+		BaseURL   string         `json:"base_url"`
+		AuthToken SecureString   `json:"auth_token,omitzero"`
+		Param     map[string]any `json:"param,omitempty"`
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var parsed alias
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+	params := map[string]any{}
+	for key, value := range parsed.Param {
+		params[key] = value
+	}
+	for key, value := range raw {
+		switch key {
+		case "name", "enabled", "base_url", "auth_token", "param":
+			continue
+		default:
+			var decoded any
+			if err := json.Unmarshal(value, &decoded); err != nil {
+				return err
+			}
+			params[key] = decoded
+		}
+	}
+	c.Name = parsed.Name
+	c.Enabled = parsed.Enabled
+	c.BaseURL = parsed.BaseURL
+	c.AuthToken = parsed.AuthToken
+	c.Param = params
+	return nil
+}
+
+func (c SkillRegistryConfig) MarshalJSON() ([]byte, error) {
+	m := map[string]any{
+		"enabled":  c.Enabled,
+		"base_url": c.BaseURL,
+	}
+	if c.Name != "" {
+		m["name"] = c.Name
+	}
+	if c.AuthToken.String() != "" {
+		m["auth_token"] = c.AuthToken
+	}
+	for key, value := range c.Param {
+		if key == "" || key == "param" {
+			continue
+		}
+		if _, exists := m[key]; exists {
+			continue
+		}
+		m[key] = value
+	}
+	return json.Marshal(m)
+}
+
+func (c *SkillRegistryConfig) UnmarshalYAML(value *yaml.Node) error {
+	var raw map[string]any
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	params := map[string]any{}
+	if nested, ok := raw["param"].(map[string]any); ok {
+		for k, v := range nested {
+			params[k] = v
+		}
+	}
+	for key, v := range raw {
+		switch key {
+		case "name":
+			if s, ok := v.(string); ok {
+				c.Name = s
+			}
+		case "enabled":
+			if b, ok := v.(bool); ok {
+				c.Enabled = b
+			}
+		case "base_url":
+			if s, ok := v.(string); ok {
+				c.BaseURL = s
+			}
+		case "auth_token":
+			data, err := yaml.Marshal(v)
+			if err != nil {
+				return err
+			}
+			if err := yaml.Unmarshal(data, &c.AuthToken); err != nil {
+				return err
+			}
+		case "param":
+			continue
+		default:
+			params[key] = v
+		}
+	}
+	c.Param = params
+	return nil
+}
+
+func (c SkillRegistryConfig) MarshalYAML() (any, error) {
+	m := map[string]any{
+		"enabled":  c.Enabled,
+		"base_url": c.BaseURL,
+	}
+	if c.Name != "" {
+		m["name"] = c.Name
+	}
+	if c.AuthToken.String() != "" {
+		m["auth_token"] = c.AuthToken
+	}
+	keys := make([]string, 0, len(c.Param))
+	for key := range c.Param {
+		if key == "" || key == "param" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if _, exists := m[key]; exists {
+			continue
+		}
+		m[key] = c.Param[key]
+	}
+	return m, nil
+}
+
+func (v *SkillsRegistriesConfig) UnmarshalYAML(value *yaml.Node) error {
+	mm := make(map[string]*SkillRegistryConfig)
+	if err := value.Decode(&mm); err != nil {
+		logger.Errorf("Decode error: %v", err)
+		return err
+	}
+	for _, registry := range *v {
+		if registry == nil {
+			continue
+		}
+		sec := mm[registry.Name]
+		if sec != nil {
+			registry.AuthToken = sec.AuthToken
+		}
+	}
+	return nil
+}
+
+func (v SkillsRegistriesConfig) MarshalYAML() (any, error) {
+	type onlySecureRegistryData struct {
+		AuthToken SecureString `yaml:"auth_token,omitempty"`
+	}
+	mm := make(map[string]onlySecureRegistryData)
+	for _, registry := range v {
+		if registry == nil || registry.Name == "" {
+			continue
+		}
+		if registry.AuthToken.String() == "" {
+			continue
+		}
+		mm[registry.Name] = onlySecureRegistryData{
+			AuthToken: registry.AuthToken,
 		}
 	}
 
