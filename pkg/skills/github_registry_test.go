@@ -118,3 +118,21 @@ func TestGitHubRegistrySearchReturnsEmptyOnUnauthenticatedRateLimit(t *testing.T
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
+
+func TestGitHubRegistrySearchReturnsEmptyOnUnauthenticatedAuthRequired(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(
+			`{"message":"Requires authentication","errors":[{"message":"Must be authenticated to access the code search API"}]}`,
+		))
+	}))
+	defer server.Close()
+
+	registry := GitHubRegistryConfig{Enabled: true, BaseURL: server.URL}.BuildRegistry()
+	require.NotNil(t, registry)
+
+	results, err := registry.Search(context.Background(), "pr review", 5)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}

@@ -12,7 +12,6 @@ import (
 
 type deps struct {
 	workspace    string
-	installer    *skills.SkillInstaller
 	skillsLoader *skills.SkillsLoader
 }
 
@@ -43,20 +42,6 @@ func NewSkillsCommand() *cobra.Command {
 		},
 	}
 
-	installerFn := func() (*skills.SkillInstaller, error) {
-		if d.installer == nil {
-			installer, err := skills.NewSkillInstaller(d.workspace, "", "")
-			if err != nil {
-				return nil, fmt.Errorf("error creating skills installer: %w", err)
-			}
-			d.installer = installer
-		}
-		if d.installer == nil {
-			return nil, fmt.Errorf("skills installer is not initialized")
-		}
-		return d.installer, nil
-	}
-
 	loaderFn := func() (*skills.SkillsLoader, error) {
 		if d.skillsLoader == nil {
 			return nil, fmt.Errorf("skills loader is not initialized")
@@ -76,7 +61,7 @@ func NewSkillsCommand() *cobra.Command {
 		newInstallCommand(),
 		newInstallBuiltinCommand(workspaceFn),
 		newListBuiltinCommand(),
-		newRemoveCommand(installerFn),
+		newRemoveCommand(workspaceFn),
 		newSearchCommand(),
 		newShowCommand(loaderFn),
 	)

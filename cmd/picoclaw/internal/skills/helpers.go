@@ -100,15 +100,24 @@ func skillsInstallFromRegistry(cfg *config.Config, registryName, target string) 
 	return nil
 }
 
-func skillsRemoveCmd(installer *skills.SkillInstaller, skillName string) {
-	fmt.Printf("Removing skill '%s'...\n", skillName)
-
-	if err := installer.Uninstall(skillName); err != nil {
-		fmt.Printf("✗ Failed to remove skill: %v\n", err)
-		os.Exit(1)
+func skillsRemoveFromWorkspace(workspace, skillName string) error {
+	name := strings.TrimSpace(skillName)
+	name = strings.Trim(name, "/")
+	if name == "" {
+		return fmt.Errorf("skill name is required")
 	}
-
-	fmt.Printf("✓ Skill '%s' removed successfully!\n", skillName)
+	if strings.Contains(name, "/") {
+		parts := strings.Split(name, "/")
+		name = parts[len(parts)-1]
+	}
+	skillDir := filepath.Join(workspace, "skills", name)
+	if _, err := os.Stat(skillDir); os.IsNotExist(err) {
+		return fmt.Errorf("skill '%s' not found", name)
+	}
+	if err := os.RemoveAll(skillDir); err != nil {
+		return fmt.Errorf("failed to remove skill '%s': %w", name, err)
+	}
+	return nil
 }
 
 func skillsInstallBuiltinCmd(workspace string) {

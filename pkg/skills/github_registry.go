@@ -140,6 +140,9 @@ func (r *GitHubRegistry) Search(ctx context.Context, query string, limit int) ([
 	if err != nil {
 		return nil, fmt.Errorf("failed to read github search response: %w", err)
 	}
+	if resp.StatusCode == http.StatusUnauthorized && r.installer.githubToken == "" && isGitHubAuthRequiredError(body) {
+		return nil, nil
+	}
 	if resp.StatusCode == http.StatusForbidden && r.installer.githubToken == "" && isGitHubRateLimitError(body) {
 		return nil, nil
 	}
@@ -191,6 +194,12 @@ func (r *GitHubRegistry) Search(ctx context.Context, query string, limit int) ([
 func isGitHubRateLimitError(body []byte) bool {
 	message := strings.ToLower(string(body))
 	return strings.Contains(message, "rate limit exceeded")
+}
+
+func isGitHubAuthRequiredError(body []byte) bool {
+	message := strings.ToLower(string(body))
+	return strings.Contains(message, "requires authentication") ||
+		strings.Contains(message, "must be authenticated to access the code search api")
 }
 
 func githubSearchSlug(item gitHubCodeSearchItem) (string, bool) {
