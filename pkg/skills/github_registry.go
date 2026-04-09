@@ -68,11 +68,15 @@ func (r *GitHubRegistry) Name() string {
 }
 
 func (r *GitHubRegistry) ResolveInstallDirName(target string) (string, error) {
-	return githubInstallDirName(target)
+	return githubInstallDirNameWithBaseURL(target, r.webBase)
 }
 
-func (r *GitHubRegistry) SkillURL(target string) string {
-	ref, err := parseGitHubRef(target)
+func (r *GitHubRegistry) SkillURL(target, version string) string {
+	defaultRef := strings.TrimSpace(version)
+	if defaultRef == "" {
+		defaultRef = "main"
+	}
+	ref, err := parseGitHubRefWithBaseURL(target, r.webBase, defaultRef)
 	if err != nil {
 		return ""
 	}
@@ -233,7 +237,7 @@ func githubSearchDisplayName(item gitHubCodeSearchItem) string {
 }
 
 func (r *GitHubRegistry) GetSkillMeta(_ context.Context, target string) (*SkillMeta, error) {
-	ref, err := parseGitHubRef(target)
+	ref, err := parseGitHubRefWithBaseURL(target, r.webBase, "main")
 	if err != nil {
 		return nil, err
 	}

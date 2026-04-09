@@ -249,7 +249,7 @@ func (h *Handler) handleSearchSkills(w http.ResponseWriter, r *http.Request) {
 			Summary:      result.Summary,
 			Version:      result.Version,
 			RegistryName: result.RegistryName,
-			URL:          registrySkillURL(cfg, result.RegistryName, result.Slug),
+			URL:          registrySkillURL(cfg, result.RegistryName, result.Slug, result.Version),
 			Installed:    installed,
 		}
 		if installed {
@@ -377,7 +377,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		OriginKind:       "third_party",
 		Registry:         registry.Name(),
 		Slug:             req.Slug,
-		RegistryURL:      registrySkillURL(cfg, registry.Name(), req.Slug),
+		RegistryURL:      registrySkillURL(cfg, registry.Name(), req.Slug, result.Version),
 		InstalledVersion: result.Version,
 		InstalledAt:      installedAt,
 	}); err != nil {
@@ -412,7 +412,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		Description:      validatedSkill.Description,
 		OriginKind:       "third_party",
 		RegistryName:     registry.Name(),
-		RegistryURL:      registrySkillURL(cfg, registry.Name(), req.Slug),
+		RegistryURL:      registrySkillURL(cfg, registry.Name(), req.Slug, result.Version),
 		InstalledVersion: result.Version,
 		InstalledAt:      installedAt,
 	}
@@ -726,7 +726,7 @@ func writeSkillOriginMeta(targetDir string, meta installedSkillOriginMeta) error
 	return fileutil.WriteFileAtomic(filepath.Join(targetDir, ".skill-origin.json"), data, 0o600)
 }
 
-func registrySkillURL(cfg *config.Config, registryName, slug string) string {
+func registrySkillURL(cfg *config.Config, registryName, slug, version string) string {
 	if cfg == nil || registryName == "" || slug == "" {
 		return ""
 	}
@@ -734,7 +734,7 @@ func registrySkillURL(cfg *config.Config, registryName, slug string) string {
 	if registry == nil {
 		return ""
 	}
-	return registry.SkillURL(slug)
+	return registry.SkillURL(slug, version)
 }
 
 func registrySkillURLFromMeta(cfg *config.Config, meta *installedSkillOriginMeta) string {
@@ -747,7 +747,7 @@ func registrySkillURLFromMeta(cfg *config.Config, meta *installedSkillOriginMeta
 	if cfg == nil || meta.Registry == "" {
 		return ""
 	}
-	return registrySkillURL(cfg, meta.Registry, meta.Slug)
+	return registrySkillURL(cfg, meta.Registry, meta.Slug, meta.InstalledVersion)
 }
 
 func normalizeImportedSkillName(filename string, content []byte) (string, error) {

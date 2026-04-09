@@ -126,7 +126,7 @@ func (c *ClawHubRegistry) ResolveInstallDirName(target string) (string, error) {
 	return target, nil
 }
 
-func (c *ClawHubRegistry) SkillURL(slug string) string {
+func (c *ClawHubRegistry) SkillURL(slug, _ string) string {
 	if slug == "" {
 		return ""
 	}

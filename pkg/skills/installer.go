@@ -137,10 +137,48 @@ func resolveGitHubEndpoints(baseURL string) (gitHubEndpoints, error) {
 	}, nil
 }
 
+func parseGitHubRefPathParts(repoURL *url.URL, githubBaseURL string) []string {
+	parts := strings.Split(strings.Trim(repoURL.Path, "/"), "/")
+	if len(parts) == 0 {
+		return parts
+	}
+	if githubBaseURL == "" {
+		return parts
+	}
+	baseURL, err := url.Parse(strings.TrimSpace(githubBaseURL))
+	if err != nil {
+		return parts
+	}
+	if !strings.EqualFold(repoURL.Host, baseURL.Host) || !strings.EqualFold(repoURL.Scheme, baseURL.Scheme) {
+		return parts
+	}
+	baseParts := strings.Split(strings.Trim(baseURL.Path, "/"), "/")
+	if len(baseParts) == 1 && baseParts[0] == "" {
+		baseParts = nil
+	}
+	if len(baseParts) == 0 || len(parts) < len(baseParts)+2 {
+		return parts
+	}
+	for i, part := range baseParts {
+		if parts[i] != part {
+			return parts
+		}
+	}
+	return parts[len(baseParts):]
+}
+
 // parseGitHubRef parses a GitHub reference.
 // Supports: "owner/repo", "owner/repo/path", or full URL like "https://github.com/owner/repo/tree/ref/path"
 func parseGitHubRef(repo string) (GitHubRef, error) {
+	return parseGitHubRefWithBaseURL(repo, "", "main")
+}
+
+func parseGitHubRefWithBaseURL(repo, githubBaseURL, defaultRef string) (GitHubRef, error) {
 	repo = strings.TrimSpace(repo)
+	defaultRef = strings.TrimSpace(defaultRef)
+	if defaultRef == "" {
+		defaultRef = "main"
+	}
 
 	// Handle full URL
 	if strings.HasPrefix(repo, "http://") || strings.HasPrefix(repo, "https://") {
@@ -148,14 +186,14 @@ func parseGitHubRef(repo string) (GitHubRef, error) {
 		if err != nil {
 			return GitHubRef{}, fmt.Errorf("invalid URL: %w", err)
 		}
-		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		parts := parseGitHubRefPathParts(u, githubBaseURL)
 		if len(parts) < 2 {
 			return GitHubRef{}, fmt.Errorf("invalid GitHub URL")
 		}
 		ref := GitHubRef{
 			Owner:    parts[0],
 			RepoName: parts[1],
-			Ref:      "main",
+			Ref:      defaultRef,
 		}
 		// Look for /tree/ or /blob/ in the path
 		for i := 2; i < len(parts); i++ {
@@ -178,7 +216,7 @@ func parseGitHubRef(repo string) (GitHubRef, error) {
 	ref := GitHubRef{
 		Owner:    parts[0],
 		RepoName: parts[1],
-		Ref:      "main",
+		Ref:      defaultRef,
 	}
 	if len(parts) > 2 {
 		ref.SubPath = strings.Join(parts[2:], "/")
@@ -187,10 +225,16 @@ func parseGitHubRef(repo string) (GitHubRef, error) {
 }
 
 func githubInstallDirName(repo string) (string, error) {
-	if err := ValidateInstallTarget(repo); err != nil {
-		return "", err
+	return githubInstallDirNameWithBaseURL(repo, "")
+}
+
+func githubInstallDirNameWithBaseURL(repo, githubBaseURL string) (string, error) {
+	if !strings.HasPrefix(repo, "http://") && !strings.HasPrefix(repo, "https://") {
+		if err := ValidateInstallTarget(repo); err != nil {
+			return "", err
+		}
 	}
-	ref, err := parseGitHubRef(repo)
+	ref, err := parseGitHubRefWithBaseURL(repo, githubBaseURL, "main")
 	if err != nil {
 		return "", err
 	}
@@ -201,7 +245,7 @@ func githubInstallDirName(repo string) (string, error) {
 }
 
 func (si *SkillInstaller) InstallFromGitHub(ctx context.Context, repo string) error {
-	skillName, err := githubInstallDirName(repo)
+	skillName, err := githubInstallDirNameWithBaseURL(repo, si.githubBaseURL)
 	if err != nil {
 		return err
 	}
@@ -218,7 +262,7 @@ func (si *SkillInstaller) InstallFromGitHubToDir(
 	ctx context.Context,
 	repo, version, skillDirectory string,
 ) (*InstallResult, error) {
-	ref, err := parseGitHubRef(repo)
+	ref, err := parseGitHubRefWithBaseURL(repo, si.githubBaseURL, "main")
 	if err != nil {
 		return nil, err
 	}

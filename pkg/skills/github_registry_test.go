@@ -136,3 +136,22 @@ func TestGitHubRegistrySearchReturnsEmptyOnUnauthenticatedAuthRequired(t *testin
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
+
+func TestGitHubRegistrySkillURLUsesProvidedVersionAndBasePath(t *testing.T) {
+	registry := GitHubRegistryConfig{
+		Enabled: true,
+		BaseURL: "https://ghe.example.com/git",
+	}.BuildRegistry()
+	require.NotNil(t, registry)
+
+	assert.Equal(
+		t,
+		"https://ghe.example.com/git/org/repo/tree/master/skills/pr-review",
+		registry.SkillURL("org/repo/skills/pr-review", "master"),
+	)
+	assert.Equal(
+		t,
+		"https://ghe.example.com/git/org/repo/tree/dev/skills/pr-review",
+		registry.SkillURL("https://ghe.example.com/git/org/repo/tree/dev/skills/pr-review", ""),
+	)
+}

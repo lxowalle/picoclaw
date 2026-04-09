@@ -20,7 +20,7 @@ func (m *mockInstallRegistry) ResolveInstallDirName(target string) (string, erro
 	return target, nil
 }
 
-func (m *mockInstallRegistry) SkillURL(slug string) string { return slug }
+func (m *mockInstallRegistry) SkillURL(slug, _ string) string { return slug }
 
 func (m *mockInstallRegistry) Search(context.Context, string, int) ([]skills.SearchResult, error) {
 	return nil, nil
@@ -47,7 +47,7 @@ func (m *mockGitHubInstallRegistry) ResolveInstallDirName(target string) (string
 	return "pr-review", nil
 }
 
-func (m *mockGitHubInstallRegistry) SkillURL(slug string) string { return slug }
+func (m *mockGitHubInstallRegistry) SkillURL(slug, _ string) string { return slug }
 
 func (m *mockGitHubInstallRegistry) Search(context.Context, string, int) ([]skills.SearchResult, error) {
 	return nil, nil

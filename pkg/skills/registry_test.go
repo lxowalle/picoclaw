@@ -26,7 +26,7 @@ func (m *mockRegistry) Name() string { return m.name }
 
 func (m *mockRegistry) ResolveInstallDirName(target string) (string, error) { return target, nil }
 
-func (m *mockRegistry) SkillURL(slug string) string { return "https://example.com/skills/" + slug }
+func (m *mockRegistry) SkillURL(slug, _ string) string { return "https://example.com/skills/" + slug }
 
 func (m *mockRegistry) Search(_ context.Context, _ string, _ int) ([]SearchResult, error) {
 	return m.searchResults, m.searchErr

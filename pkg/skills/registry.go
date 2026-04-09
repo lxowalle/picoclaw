@@ -61,7 +61,8 @@ type SkillRegistry interface {
 	// differently (for example, a slug vs owner/repo/path).
 	ResolveInstallDirName(target string) (string, error)
 	// SkillURL returns the web URL for a skill slug if the registry exposes one.
-	SkillURL(slug string) string
+	// version is optional and can be used by registries whose URLs depend on a ref.
+	SkillURL(slug, version string) string
 	// Search searches the registry for skills matching the query.
 	Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
 	// GetSkillMeta retrieves metadata for a specific skill by slug.

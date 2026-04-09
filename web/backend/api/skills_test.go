@@ -26,6 +26,15 @@ func setClawHubBaseURL(cfg *config.Config, baseURL string) {
 	cfg.Tools.Skills.Registries.Set("clawhub", registryCfg)
 }
 
+func setGithubBaseURL(cfg *config.Config, baseURL string) {
+	registryCfg, ok := cfg.Tools.Skills.Registries.Get("github")
+	if !ok {
+		return
+	}
+	registryCfg.BaseURL = baseURL
+	cfg.Tools.Skills.Registries.Set("github", registryCfg)
+}
+
 func TestHandleListSkills(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
@@ -633,6 +642,72 @@ func TestHandleSearchSkills(t *testing.T) {
 	}
 	if resp.Results[1].Installed {
 		t.Fatalf("second result should not be installed, got %#v", resp.Results[1])
+	}
+}
+
+func TestHandleSearchSkillsUsesGitHubResultVersionInURL(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v3/search/code" {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{
+				{
+					"path":  "skills/pr-review/SKILL.md",
+					"score": 10,
+					"repository": map[string]any{
+						"full_name":      "foo/bar",
+						"name":           "bar",
+						"description":    "Review pull requests",
+						"default_branch": "master",
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	setGithubBaseURL(cfg, server.URL)
+	clawHubRegistry, _ := cfg.Tools.Skills.Registries.Get("clawhub")
+	clawHubRegistry.Enabled = false
+	cfg.Tools.Skills.Registries.Set("clawhub", clawHubRegistry)
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/skills/search?q=pr+review&limit=5", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp skillSearchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(resp.Results) != 1 {
+		t.Fatalf("results count = %d, want 1", len(resp.Results))
+	}
+	if resp.Results[0].URL != server.URL+"/foo/bar/tree/master/skills/pr-review" {
+		t.Fatalf("result URL = %q", resp.Results[0].URL)
 	}
 }
 

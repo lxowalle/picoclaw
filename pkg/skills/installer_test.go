@@ -127,6 +127,40 @@ func TestParseGitHubRef(t *testing.T) {
 	}
 }
 
+func TestParseGitHubRefWithBaseURL(t *testing.T) {
+	ref, err := parseGitHubRefWithBaseURL(
+		"https://ghe.example.com/git/org/repo/tree/dev/skills/test",
+		"https://ghe.example.com/git",
+		"main",
+	)
+	if err != nil {
+		t.Fatalf("parseGitHubRefWithBaseURL() unexpected error = %v", err)
+	}
+	if ref.Owner != "org" {
+		t.Fatalf("owner = %q, want org", ref.Owner)
+	}
+	if ref.RepoName != "repo" {
+		t.Fatalf("repo = %q, want repo", ref.RepoName)
+	}
+	if ref.Ref != "dev" {
+		t.Fatalf("ref = %q, want dev", ref.Ref)
+	}
+	if ref.SubPath != "skills/test" {
+		t.Fatalf("subPath = %q, want skills/test", ref.SubPath)
+	}
+
+	dirName, err := githubInstallDirNameWithBaseURL(
+		"https://ghe.example.com/git/org/repo/tree/dev/skills/test",
+		"https://ghe.example.com/git",
+	)
+	if err != nil {
+		t.Fatalf("githubInstallDirNameWithBaseURL() unexpected error = %v", err)
+	}
+	if dirName != "test" {
+		t.Fatalf("dirName = %q, want test", dirName)
+	}
+}
+
 func TestShouldDownload(t *testing.T) {
 	tests := []struct {
 		name string
