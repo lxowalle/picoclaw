@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -978,6 +979,18 @@ type SkillRegistryConfig struct {
 	Param     map[string]any `json:"-"                   yaml:"-"                    env:"-"`
 }
 
+const (
+	envSkillsClawHubEnabled         = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_ENABLED"
+	envSkillsClawHubBaseURL         = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_BASE_URL"
+	envSkillsClawHubAuthToken       = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_AUTH_TOKEN"
+	envSkillsClawHubSearchPath      = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SEARCH_PATH"
+	envSkillsClawHubSkillsPath      = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_SKILLS_PATH"
+	envSkillsClawHubDownloadPath    = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_DOWNLOAD_PATH"
+	envSkillsClawHubTimeout         = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"
+	envSkillsClawHubMaxZipSize      = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"
+	envSkillsClawHubMaxResponseSize = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"
+)
+
 func (c *SkillRegistryConfig) DecodeParam(target any) error {
 	if c == nil {
 		return nil
@@ -1164,6 +1177,7 @@ func LoadConfig(path string) (*Config, error) {
 	if err = env.Parse(cfg); err != nil {
 		return nil, err
 	}
+	applySkillsRegistryEnvCompat(cfg)
 
 	// Expand multi-key configs into separate entries for key-level failover
 	cfg.ModelList = expandMultiKeyModels(cfg.ModelList)
@@ -1180,6 +1194,61 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func applySkillsRegistryEnvCompat(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+
+	registryCfg, ok := cfg.Tools.Skills.Registries.Get("clawhub")
+	if !ok {
+		registryCfg = SkillRegistryConfig{
+			Name:  "clawhub",
+			Param: map[string]any{},
+		}
+	}
+	if registryCfg.Param == nil {
+		registryCfg.Param = map[string]any{}
+	}
+
+	if raw, ok := os.LookupEnv(envSkillsClawHubEnabled); ok {
+		if value, err := strconv.ParseBool(strings.TrimSpace(raw)); err == nil {
+			registryCfg.Enabled = value
+		}
+	}
+	if value, ok := os.LookupEnv(envSkillsClawHubBaseURL); ok {
+		registryCfg.BaseURL = value
+	}
+	if value, ok := os.LookupEnv(envSkillsClawHubAuthToken); ok {
+		registryCfg.AuthToken = *NewSecureString(value)
+	}
+	if value, ok := os.LookupEnv(envSkillsClawHubSearchPath); ok {
+		registryCfg.Param["search_path"] = value
+	}
+	if value, ok := os.LookupEnv(envSkillsClawHubSkillsPath); ok {
+		registryCfg.Param["skills_path"] = value
+	}
+	if value, ok := os.LookupEnv(envSkillsClawHubDownloadPath); ok {
+		registryCfg.Param["download_path"] = value
+	}
+	if raw, ok := os.LookupEnv(envSkillsClawHubTimeout); ok {
+		if value, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			registryCfg.Param["timeout"] = value
+		}
+	}
+	if raw, ok := os.LookupEnv(envSkillsClawHubMaxZipSize); ok {
+		if value, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			registryCfg.Param["max_zip_size"] = value
+		}
+	}
+	if raw, ok := os.LookupEnv(envSkillsClawHubMaxResponseSize); ok {
+		if value, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+			registryCfg.Param["max_response_size"] = value
+		}
+	}
+
+	cfg.Tools.Skills.Registries.Set("clawhub", registryCfg)
 }
 
 func makeBackup(path string) error {
