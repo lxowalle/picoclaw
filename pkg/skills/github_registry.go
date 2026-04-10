@@ -147,10 +147,12 @@ func (r *GitHubRegistry) Search(ctx context.Context, query string, limit int) ([
 		return nil, fmt.Errorf("failed to read github search response: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized && r.installer.githubToken == "" && isGitHubAuthRequiredError(body) {
-		return nil, fmt.Errorf("github search requires authentication; %s", githubAuthTokenHelp)
+		slog.Warn("github search requires authentication; returning no results", "help", githubAuthTokenHelp)
+		return []SearchResult{}, nil
 	}
 	if resp.StatusCode == http.StatusForbidden && r.installer.githubToken == "" && isGitHubRateLimitError(body) {
-		return nil, fmt.Errorf("github search hit the unauthenticated rate limit; %s", githubAuthTokenHelp)
+		slog.Warn("github search hit unauthenticated rate limit; returning no results", "help", githubAuthTokenHelp)
+		return []SearchResult{}, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("github search failed: HTTP %d: %s", resp.StatusCode, string(body))
@@ -238,7 +240,23 @@ func githubSearchDisplayName(item gitHubCodeSearchItem) string {
 	return strings.TrimSpace(item.Repository.FullName)
 }
 
+func canonicalGitHubRegistrySlugWithBaseURL(target, githubBaseURL string) (string, error) {
+	ref, err := parseGitHubRefWithBaseURL(target, githubBaseURL, "")
+	if err != nil {
+		return "", err
+	}
+	slug := path.Join(ref.Owner, ref.RepoName)
+	if ref.SubPath != "" {
+		slug = path.Join(slug, ref.SubPath)
+	}
+	return slug, nil
+}
+
 func (r *GitHubRegistry) GetSkillMeta(ctx context.Context, target string) (*SkillMeta, error) {
+	slug, err := canonicalGitHubRegistrySlugWithBaseURL(target, r.webBase)
+	if err != nil {
+		return nil, err
+	}
 	ref, err := parseGitHubRefWithBaseURL(target, r.webBase, "")
 	if err != nil {
 		return nil, err
@@ -250,7 +268,7 @@ func (r *GitHubRegistry) GetSkillMeta(ctx context.Context, target string) (*Skil
 		}
 	}
 	return &SkillMeta{
-		Slug:          target,
+		Slug:          slug,
 		DisplayName:   ref.RepoName,
 		LatestVersion: ref.Ref,
 		RegistryName:  r.Name(),

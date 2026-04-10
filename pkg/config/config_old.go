@@ -970,14 +970,16 @@ func (v *clawHubRegistryConfigV0) ToSkillRegistryConfig() SkillRegistryConfig {
 }
 
 type skillsGithubConfigV0 struct {
-	Token string `json:"token"           env:"PICOCLAW_TOOLS_SKILLS_GITHUB_TOKEN"`
-	Proxy string `json:"proxy,omitempty" env:"PICOCLAW_TOOLS_SKILLS_GITHUB_PROXY"`
+	BaseURL string `json:"base_url,omitempty" env:"PICOCLAW_TOOLS_SKILLS_GITHUB_BASE_URL"`
+	Token   string `json:"token"              env:"PICOCLAW_TOOLS_SKILLS_GITHUB_TOKEN"`
+	Proxy   string `json:"proxy,omitempty"    env:"PICOCLAW_TOOLS_SKILLS_GITHUB_PROXY"`
 }
 
 func (v *skillsGithubConfigV0) ToSkillsGithubConfig() SkillsGithubConfig {
 	return SkillsGithubConfig{
-		Token: *NewSecureString(v.Token),
-		Proxy: v.Proxy,
+		BaseURL: v.BaseURL,
+		Token:   *NewSecureString(v.Token),
+		Proxy:   v.Proxy,
 	}
 }
 

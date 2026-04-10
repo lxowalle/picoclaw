@@ -94,3 +94,22 @@ func LookupRegistryFromToolsConfig(cfg config.SkillsToolsConfig, name string) Sk
 	}
 	return nil
 }
+
+func NormalizeInstallTargetForRegistry(cfg config.SkillsToolsConfig, registryName, target string) string {
+	if registryName == "" || target == "" {
+		return target
+	}
+	registry := LookupRegistryFromToolsConfig(cfg, registryName)
+	if registry == nil {
+		return target
+	}
+	ghRegistry, ok := registry.(*GitHubRegistry)
+	if !ok {
+		return target
+	}
+	normalized, err := canonicalGitHubRegistrySlugWithBaseURL(target, ghRegistry.webBase)
+	if err != nil || normalized == "" {
+		return target
+	}
+	return normalized
+}

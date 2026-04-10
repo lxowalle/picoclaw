@@ -262,3 +262,16 @@ func TestSkillsRegistriesConfigMarshalJSONPreservesObjectShape(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "https://clawhub.ai", clawhub.BaseURL)
 }
+
+func TestSkillsGithubConfigV0ToSkillsGithubConfigPreservesBaseURL(t *testing.T) {
+	legacy := skillsGithubConfigV0{
+		BaseURL: "https://ghe.example.com/git",
+		Token:   "ghp-test-token",
+		Proxy:   "http://127.0.0.1:7890",
+	}
+
+	converted := legacy.ToSkillsGithubConfig()
+	assert.Equal(t, "https://ghe.example.com/git", converted.BaseURL)
+	assert.Equal(t, "ghp-test-token", converted.Token.String())
+	assert.Equal(t, "http://127.0.0.1:7890", converted.Proxy)
+}

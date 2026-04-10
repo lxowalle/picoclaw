@@ -103,7 +103,7 @@ func TestGitHubRegistryProviderDecodesProxyParam(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:7890", ghRegistry.installer.proxy)
 }
 
-func TestGitHubRegistrySearchReturnsHelpfulErrorOnUnauthenticatedRateLimit(t *testing.T) {
+func TestGitHubRegistrySearchReturnsNoResultsOnUnauthenticatedRateLimit(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Empty(t, r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusForbidden)
@@ -115,12 +115,11 @@ func TestGitHubRegistrySearchReturnsHelpfulErrorOnUnauthenticatedRateLimit(t *te
 	require.NotNil(t, registry)
 
 	results, err := registry.Search(context.Background(), "pr review", 5)
-	require.Error(t, err)
-	assert.Nil(t, results)
-	assert.Contains(t, err.Error(), "registries.github.auth_token")
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
-func TestGitHubRegistrySearchReturnsHelpfulErrorOnUnauthenticatedAuthRequired(t *testing.T) {
+func TestGitHubRegistrySearchReturnsNoResultsOnUnauthenticatedAuthRequired(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Empty(t, r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusUnauthorized)
@@ -134,9 +133,25 @@ func TestGitHubRegistrySearchReturnsHelpfulErrorOnUnauthenticatedAuthRequired(t 
 	require.NotNil(t, registry)
 
 	results, err := registry.Search(context.Background(), "pr review", 5)
-	require.Error(t, err)
-	assert.Nil(t, results)
-	assert.Contains(t, err.Error(), "registries.github.auth_token")
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestGitHubRegistryGetSkillMetaCanonicalizesURLSlug(t *testing.T) {
+	registry := GitHubRegistryConfig{
+		Enabled: true,
+		BaseURL: "https://ghe.example.com/git",
+	}.BuildRegistry()
+	require.NotNil(t, registry)
+
+	meta, err := registry.GetSkillMeta(
+		context.Background(),
+		"https://ghe.example.com/git/org/repo/tree/dev/skills/pr-review",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, meta)
+	assert.Equal(t, "org/repo/skills/pr-review", meta.Slug)
+	assert.Equal(t, "dev", meta.LatestVersion)
 }
 
 func TestGitHubRegistrySkillURLUsesProvidedVersionAndBasePath(t *testing.T) {

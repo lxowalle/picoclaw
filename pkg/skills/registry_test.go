@@ -238,3 +238,20 @@ func TestExplicitGithubRegistryBaseURLBeatsLegacyCompat(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "https://ghe-explicit.example.com/scm", ghRegistry.webBase)
 }
+
+func TestNormalizeInstallTargetForRegistryCanonicalizesGitHubURLs(t *testing.T) {
+	cfg := config.DefaultConfig().Tools.Skills
+	cfg.Registries.Set("github", config.SkillRegistryConfig{
+		Name:    "github",
+		Enabled: true,
+		BaseURL: "https://ghe.example.com/git",
+		Param:   map[string]any{},
+	})
+
+	got := NormalizeInstallTargetForRegistry(
+		cfg,
+		"github",
+		"https://ghe.example.com/git/org/repo/tree/dev/skills/pr-review",
+	)
+	assert.Equal(t, "org/repo/skills/pr-review", got)
+}

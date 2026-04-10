@@ -372,12 +372,13 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	installedAt := time.Now().UnixMilli()
+	normalizedSlug := skills.NormalizeInstallTargetForRegistry(cfg.Tools.Skills, registry.Name(), req.Slug)
 	if err := persistSkillOriginMeta(stagedTargetDir, installedSkillOriginMeta{
 		Version:          1,
 		OriginKind:       "third_party",
 		Registry:         registry.Name(),
-		Slug:             req.Slug,
-		RegistryURL:      registrySkillURL(cfg, registry.Name(), req.Slug, result.Version),
+		Slug:             normalizedSlug,
+		RegistryURL:      registrySkillURL(cfg, registry.Name(), normalizedSlug, result.Version),
 		InstalledVersion: result.Version,
 		InstalledAt:      installedAt,
 	}); err != nil {
@@ -412,7 +413,7 @@ func (h *Handler) handleInstallSkill(w http.ResponseWriter, r *http.Request) {
 		Description:      validatedSkill.Description,
 		OriginKind:       "third_party",
 		RegistryName:     registry.Name(),
-		RegistryURL:      registrySkillURL(cfg, registry.Name(), req.Slug, result.Version),
+		RegistryURL:      registrySkillURL(cfg, registry.Name(), normalizedSlug, result.Version),
 		InstalledVersion: result.Version,
 		InstalledAt:      installedAt,
 	}
@@ -570,7 +571,10 @@ func buildOccupiedWorkspaceSkillsByDirectory(cfg *config.Config) (map[string]ski
 
 		key := filepath.Base(filepath.Dir(skill.Path))
 		if meta, err := readInstalledSkillOriginMeta(skill.Path); err == nil && meta != nil && meta.Slug != "" {
-			key = meta.Slug
+			key = skills.NormalizeInstallTargetForRegistry(cfg.Tools.Skills, meta.Registry, meta.Slug)
+			if key == "" {
+				key = meta.Slug
+			}
 		}
 		if key == "" {
 			continue
