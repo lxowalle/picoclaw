@@ -224,10 +224,6 @@ func parseGitHubRefWithBaseURL(repo, githubBaseURL, defaultRef string) (GitHubRe
 	return ref, nil
 }
 
-func githubInstallDirName(repo string) (string, error) {
-	return githubInstallDirNameWithBaseURL(repo, "")
-}
-
 func githubInstallDirNameWithBaseURL(repo, githubBaseURL string) (string, error) {
 	if !strings.HasPrefix(repo, "http://") && !strings.HasPrefix(repo, "https://") {
 		if err := ValidateInstallTarget(repo); err != nil {
