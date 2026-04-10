@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -11,11 +12,22 @@ import (
 
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/fileutil"
 	"github.com/sipeed/picoclaw/pkg/skills"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
 const skillsSearchMaxResults = 20
+
+type installedSkillOriginMeta struct {
+	Version          int    `json:"version"`
+	OriginKind       string `json:"origin_kind,omitempty"`
+	Registry         string `json:"registry,omitempty"`
+	Slug             string `json:"slug,omitempty"`
+	RegistryURL      string `json:"registry_url,omitempty"`
+	InstalledVersion string `json:"installed_version,omitempty"`
+	InstalledAt      int64  `json:"installed_at"`
+}
 
 func skillsListCmd(loader *skills.SkillsLoader) {
 	allSkills := loader.ListSkills()
@@ -92,12 +104,35 @@ func skillsInstallFromRegistry(cfg *config.Config, registryName, target string) 
 		fmt.Printf("\u26a0\ufe0f  Warning: skill '%s' is flagged as suspicious.\n", target)
 	}
 
+	normalizedSlug := skills.NormalizeInstallTargetForRegistry(cfg.Tools.Skills, registry.Name(), target)
+	installedAt := time.Now().UnixMilli()
+	if err := writeInstalledSkillOriginMeta(targetDir, installedSkillOriginMeta{
+		Version:          1,
+		OriginKind:       "third_party",
+		Registry:         registry.Name(),
+		Slug:             normalizedSlug,
+		RegistryURL:      registry.SkillURL(normalizedSlug, result.Version),
+		InstalledVersion: result.Version,
+		InstalledAt:      installedAt,
+	}); err != nil {
+		_ = os.RemoveAll(targetDir)
+		return fmt.Errorf("✗ failed to persist skill metadata: %w", err)
+	}
+
 	fmt.Printf("\u2713 Skill '%s' v%s installed successfully!\n", dirName, result.Version)
 	if result.Summary != "" {
 		fmt.Printf("  %s\n", result.Summary)
 	}
 
 	return nil
+}
+
+func writeInstalledSkillOriginMeta(targetDir string, meta installedSkillOriginMeta) error {
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fileutil.WriteFileAtomic(filepath.Join(targetDir, ".skill-origin.json"), data, 0o600)
 }
 
 func skillsRemoveFromWorkspace(workspace, skillName string) error {
