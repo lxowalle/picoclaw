@@ -103,7 +103,7 @@ func TestGitHubRegistryProviderDecodesProxyParam(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:7890", ghRegistry.installer.proxy)
 }
 
-func TestGitHubRegistrySearchReturnsEmptyOnUnauthenticatedRateLimit(t *testing.T) {
+func TestGitHubRegistrySearchReturnsHelpfulErrorOnUnauthenticatedRateLimit(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Empty(t, r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusForbidden)
@@ -115,11 +115,12 @@ func TestGitHubRegistrySearchReturnsEmptyOnUnauthenticatedRateLimit(t *testing.T
 	require.NotNil(t, registry)
 
 	results, err := registry.Search(context.Background(), "pr review", 5)
-	require.NoError(t, err)
-	assert.Empty(t, results)
+	require.Error(t, err)
+	assert.Nil(t, results)
+	assert.Contains(t, err.Error(), "registries.github.auth_token")
 }
 
-func TestGitHubRegistrySearchReturnsEmptyOnUnauthenticatedAuthRequired(t *testing.T) {
+func TestGitHubRegistrySearchReturnsHelpfulErrorOnUnauthenticatedAuthRequired(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Empty(t, r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusUnauthorized)
@@ -133,8 +134,9 @@ func TestGitHubRegistrySearchReturnsEmptyOnUnauthenticatedAuthRequired(t *testin
 	require.NotNil(t, registry)
 
 	results, err := registry.Search(context.Background(), "pr review", 5)
-	require.NoError(t, err)
-	assert.Empty(t, results)
+	require.Error(t, err)
+	assert.Nil(t, results)
+	assert.Contains(t, err.Error(), "registries.github.auth_token")
 }
 
 func TestGitHubRegistrySkillURLUsesProvidedVersionAndBasePath(t *testing.T) {

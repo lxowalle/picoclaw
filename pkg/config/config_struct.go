@@ -505,6 +505,24 @@ func (v *SkillsRegistriesConfig) UnmarshalYAML(value *yaml.Node) error {
 		logger.Errorf("Decode error: %v", err)
 		return err
 	}
+	if len(*v) == 0 {
+		keys := make([]string, 0, len(mm))
+		for name := range mm {
+			keys = append(keys, name)
+		}
+		sort.Strings(keys)
+		list := make([]*SkillRegistryConfig, 0, len(keys))
+		for _, name := range keys {
+			registry := mm[name]
+			if registry == nil {
+				continue
+			}
+			registry.Name = name
+			list = append(list, registry)
+		}
+		*v = list
+		return nil
+	}
 	for _, registry := range *v {
 		if registry == nil {
 			continue
@@ -512,6 +530,21 @@ func (v *SkillsRegistriesConfig) UnmarshalYAML(value *yaml.Node) error {
 		sec := mm[registry.Name]
 		if sec != nil {
 			registry.AuthToken = sec.AuthToken
+			if registry.BaseURL == "" {
+				registry.BaseURL = sec.BaseURL
+			}
+			if !registry.Enabled {
+				registry.Enabled = sec.Enabled
+			}
+			if registry.Param == nil {
+				registry.Param = map[string]any{}
+			}
+			for key, value := range sec.Param {
+				if _, ok := registry.Param[key]; ok {
+					continue
+				}
+				registry.Param[key] = value
+			}
 		}
 	}
 	return nil

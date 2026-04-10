@@ -204,6 +204,22 @@ func TestSkillsRegistriesConfigMarshalYAMLIncludesRegistryToken(t *testing.T) {
 	assert.Equal(t, "registry-auth-token", github.AuthToken.String())
 }
 
+func TestSkillsRegistriesConfigUnmarshalYAMLBuildsEntriesFromEmptySlice(t *testing.T) {
+	var registries SkillsRegistriesConfig
+	err := yaml.Unmarshal([]byte(`github:
+  enabled: true
+  base_url: https://ghe.example.com/git
+  proxy: http://127.0.0.1:7890
+`), &registries)
+	assert.NoError(t, err)
+
+	github, ok := registries.Get("github")
+	assert.True(t, ok)
+	assert.True(t, github.Enabled)
+	assert.Equal(t, "https://ghe.example.com/git", github.BaseURL)
+	assert.Equal(t, "http://127.0.0.1:7890", github.Param["proxy"])
+}
+
 func TestSkillsRegistriesConfigMarshalJSONPreservesObjectShape(t *testing.T) {
 	registries := SkillsRegistriesConfig{
 		&SkillRegistryConfig{

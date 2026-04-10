@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -176,9 +177,6 @@ func parseGitHubRef(repo string) (GitHubRef, error) {
 func parseGitHubRefWithBaseURL(repo, githubBaseURL, defaultRef string) (GitHubRef, error) {
 	repo = strings.TrimSpace(repo)
 	defaultRef = strings.TrimSpace(defaultRef)
-	if defaultRef == "" {
-		defaultRef = "main"
-	}
 
 	// Handle full URL
 	if strings.HasPrefix(repo, "http://") || strings.HasPrefix(repo, "https://") {
@@ -224,6 +222,64 @@ func parseGitHubRefWithBaseURL(repo, githubBaseURL, defaultRef string) (GitHubRe
 	return ref, nil
 }
 
+type gitHubRepository struct {
+	DefaultBranch string `json:"default_branch"`
+}
+
+func (si *SkillInstaller) resolveGitHubRef(ctx context.Context, repo, version string) (GitHubRef, error) {
+	ref, err := parseGitHubRefWithBaseURL(repo, si.githubBaseURL, "")
+	if err != nil {
+		return GitHubRef{}, err
+	}
+	if version != "" {
+		ref.Ref = version
+		return ref, nil
+	}
+	if ref.Ref != "" {
+		return ref, nil
+	}
+	defaultBranch, err := si.fetchDefaultBranch(ctx, ref.Owner, ref.RepoName)
+	if err != nil {
+		return GitHubRef{}, err
+	}
+	ref.Ref = defaultBranch
+	return ref, nil
+}
+
+func (si *SkillInstaller) fetchDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
+	apiURL := fmt.Sprintf("%s/repos/%s/%s", strings.TrimRight(si.githubAPIBaseURL, "/"), owner, repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	if si.githubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+si.githubToken)
+	}
+
+	resp, err := utils.DoRequestWithRetry(si.client, req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("failed to read repository metadata: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to resolve default branch: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var repository gitHubRepository
+	if err := json.Unmarshal(body, &repository); err != nil {
+		return "", fmt.Errorf("failed to parse repository metadata: %w", err)
+	}
+	if strings.TrimSpace(repository.DefaultBranch) == "" {
+		return "", fmt.Errorf("repository %s/%s did not report a default branch", owner, repo)
+	}
+	return repository.DefaultBranch, nil
+}
+
 func githubInstallDirNameWithBaseURL(repo, githubBaseURL string) (string, error) {
 	if !strings.HasPrefix(repo, "http://") && !strings.HasPrefix(repo, "https://") {
 		if err := ValidateInstallTarget(repo); err != nil {
@@ -258,12 +314,9 @@ func (si *SkillInstaller) InstallFromGitHubToDir(
 	ctx context.Context,
 	repo, version, skillDirectory string,
 ) (*InstallResult, error) {
-	ref, err := parseGitHubRefWithBaseURL(repo, si.githubBaseURL, "main")
+	ref, err := si.resolveGitHubRef(ctx, repo, version)
 	if err != nil {
 		return nil, err
-	}
-	if version != "" {
-		ref.Ref = version
 	}
 
 	// Build GitHub API URL

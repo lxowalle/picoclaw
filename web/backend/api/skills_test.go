@@ -1111,16 +1111,18 @@ func TestHandleInstallSkillDefaultsRegistryToGitHub(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/repos/foo/bar/contents/.agents/skills/pr-review":
-			assert.Equal(t, "ref=main", r.URL.RawQuery)
+		case "/api/v3/repos/foo/bar":
+			json.NewEncoder(w).Encode(map[string]any{"default_branch": "master"})
+		case "/api/v3/repos/foo/bar/contents/.agents/skills/pr-review":
+			assert.Equal(t, "ref=master", r.URL.RawQuery)
 			json.NewEncoder(w).Encode([]map[string]any{
 				{
 					"type":         "file",
 					"name":         "SKILL.md",
-					"download_url": server.URL + "/raw/foo/bar/main/.agents/skills/pr-review/SKILL.md",
+					"download_url": server.URL + "/raw/foo/bar/master/.agents/skills/pr-review/SKILL.md",
 				},
 			})
-		case "/raw/foo/bar/main/.agents/skills/pr-review/SKILL.md":
+		case "/raw/foo/bar/master/.agents/skills/pr-review/SKILL.md":
 			_, _ = w.Write([]byte("---\nname: pr-review\ndescription: PR review skill\n---\n# PR Review\n"))
 		default:
 			http.NotFound(w, r)

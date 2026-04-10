@@ -159,6 +159,43 @@ func TestParseGitHubRefWithBaseURL(t *testing.T) {
 	if dirName != "test" {
 		t.Fatalf("dirName = %q, want test", dirName)
 	}
+
+	ref, err = parseGitHubRefWithBaseURL("https://ghe.example.com/git/org/repo", "https://ghe.example.com/git", "")
+	if err != nil {
+		t.Fatalf("parseGitHubRefWithBaseURL() unexpected error = %v", err)
+	}
+	if ref.Ref != "" {
+		t.Fatalf("ref = %q, want empty", ref.Ref)
+	}
+}
+
+func TestSkillInstallerResolveGitHubRefUsesDefaultBranch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/repos/org/repo":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"default_branch":"master"}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	installer, err := NewSkillInstallerWithBaseURL(t.TempDir(), server.URL, "", "")
+	if err != nil {
+		t.Fatalf("NewSkillInstallerWithBaseURL() error = %v", err)
+	}
+
+	ref, err := installer.resolveGitHubRef(context.Background(), "org/repo/skills/test", "")
+	if err != nil {
+		t.Fatalf("resolveGitHubRef() error = %v", err)
+	}
+	if ref.Ref != "master" {
+		t.Fatalf("ref = %q, want master", ref.Ref)
+	}
+	if ref.SubPath != "skills/test" {
+		t.Fatalf("subPath = %q, want skills/test", ref.SubPath)
+	}
 }
 
 func TestShouldDownload(t *testing.T) {

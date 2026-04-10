@@ -47,6 +47,8 @@ type GitHubRegistry struct {
 	webBase   string
 }
 
+const githubAuthTokenHelp = "configure registries.github.auth_token"
+
 func (c GitHubRegistryConfig) IsEnabled() bool {
 	return c.Enabled
 }
@@ -73,19 +75,19 @@ func (r *GitHubRegistry) ResolveInstallDirName(target string) (string, error) {
 
 func (r *GitHubRegistry) SkillURL(target, version string) string {
 	defaultRef := strings.TrimSpace(version)
-	if defaultRef == "" {
-		defaultRef = "main"
-	}
 	ref, err := parseGitHubRefWithBaseURL(target, r.webBase, defaultRef)
 	if err != nil {
 		return ""
 	}
 	base := strings.TrimRight(r.webBase, "/")
 	urlPath := path.Join(ref.Owner, ref.RepoName)
+	if ref.Ref == "" {
+		return fmt.Sprintf("%s/%s", base, urlPath)
+	}
 	if ref.SubPath != "" {
 		return fmt.Sprintf("%s/%s/tree/%s/%s", base, urlPath, url.PathEscape(ref.Ref), ref.SubPath)
 	}
-	if ref.Ref != "" && ref.Ref != "main" {
+	if ref.Ref != "main" {
 		return fmt.Sprintf("%s/%s/tree/%s", base, urlPath, url.PathEscape(ref.Ref))
 	}
 	return fmt.Sprintf("%s/%s", base, urlPath)
@@ -145,10 +147,10 @@ func (r *GitHubRegistry) Search(ctx context.Context, query string, limit int) ([
 		return nil, fmt.Errorf("failed to read github search response: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized && r.installer.githubToken == "" && isGitHubAuthRequiredError(body) {
-		return nil, nil
+		return nil, fmt.Errorf("github search requires authentication; %s", githubAuthTokenHelp)
 	}
 	if resp.StatusCode == http.StatusForbidden && r.installer.githubToken == "" && isGitHubRateLimitError(body) {
-		return nil, nil
+		return nil, fmt.Errorf("github search hit the unauthenticated rate limit; %s", githubAuthTokenHelp)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("github search failed: HTTP %d: %s", resp.StatusCode, string(body))
@@ -236,10 +238,16 @@ func githubSearchDisplayName(item gitHubCodeSearchItem) string {
 	return strings.TrimSpace(item.Repository.FullName)
 }
 
-func (r *GitHubRegistry) GetSkillMeta(_ context.Context, target string) (*SkillMeta, error) {
-	ref, err := parseGitHubRefWithBaseURL(target, r.webBase, "main")
+func (r *GitHubRegistry) GetSkillMeta(ctx context.Context, target string) (*SkillMeta, error) {
+	ref, err := parseGitHubRefWithBaseURL(target, r.webBase, "")
 	if err != nil {
 		return nil, err
+	}
+	if ref.Ref == "" {
+		ref.Ref, err = r.installer.fetchDefaultBranch(ctx, ref.Owner, ref.RepoName)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &SkillMeta{
 		Slug:          target,
