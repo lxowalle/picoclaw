@@ -156,6 +156,19 @@ func (t *InstallSkillTool) Execute(ctx context.Context, args map[string]any) *To
 		return ErrorResult(fmt.Sprintf("skill %q is flagged as malicious and cannot be installed", slug))
 	}
 
+	if !workspaceHasValidInstalledSkill(t.workspace, dirName) {
+		rmErr := os.RemoveAll(targetDir)
+		if rmErr != nil {
+			logger.ErrorCF("tool", "Failed to remove invalid installed skill",
+				map[string]any{
+					"tool":       "install_skill",
+					"target_dir": targetDir,
+					"error":      rmErr.Error(),
+				})
+		}
+		return ErrorResult(fmt.Sprintf("failed to install %q: registry archive is not a valid skill", slug))
+	}
+
 	// Write origin metadata.
 	if err := writeOriginMeta(targetDir, registry, slug, result.Version); err != nil {
 		logger.ErrorCF("tool", "Failed to write origin metadata",
@@ -223,4 +236,17 @@ func writeOriginMeta(targetDir string, registry skills.SkillRegistry, slug, vers
 
 	// Use unified atomic write utility with explicit sync for flash storage reliability.
 	return fileutil.WriteFileAtomic(filepath.Join(targetDir, ".skill-origin.json"), data, 0o600)
+}
+
+func workspaceHasValidInstalledSkill(workspace, directory string) bool {
+	loader := skills.NewSkillsLoader(workspace, "", "")
+	for _, skill := range loader.ListSkills() {
+		if skill.Source != "workspace" {
+			continue
+		}
+		if filepath.Base(filepath.Dir(skill.Path)) == directory {
+			return true
+		}
+	}
+	return false
 }

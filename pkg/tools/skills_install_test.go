@@ -15,6 +15,8 @@ import (
 
 type mockInstallRegistry struct{}
 
+const validSkillMarkdown = "---\nname: pr-review\ndescription: Review pull requests\n---\n# PR Review\n"
+
 func (m *mockInstallRegistry) Name() string { return "clawhub" }
 
 func (m *mockInstallRegistry) ResolveInstallDirName(target string) (string, error) {
@@ -32,11 +34,17 @@ func (m *mockInstallRegistry) GetSkillMeta(context.Context, string) (*skills.Ski
 }
 
 func (m *mockInstallRegistry) DownloadAndInstall(
-	context.Context,
-	string,
-	string,
-	string,
+	_ context.Context,
+	_ string,
+	_ string,
+	targetDir string,
 ) (*skills.InstallResult, error) {
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "SKILL.md"), []byte(validSkillMarkdown), 0o600); err != nil {
+		return nil, err
+	}
 	return &skills.InstallResult{Version: "test"}, nil
 }
 
@@ -59,11 +67,17 @@ func (m *mockGitHubInstallRegistry) GetSkillMeta(context.Context, string) (*skil
 }
 
 func (m *mockGitHubInstallRegistry) DownloadAndInstall(
-	context.Context,
-	string,
-	string,
-	string,
+	_ context.Context,
+	_ string,
+	_ string,
+	targetDir string,
 ) (*skills.InstallResult, error) {
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "SKILL.md"), []byte(validSkillMarkdown), 0o600); err != nil {
+		return nil, err
+	}
 	return &skills.InstallResult{Version: "main"}, nil
 }
 
@@ -72,12 +86,55 @@ type stubGitHubInstallRegistry struct {
 }
 
 func (m *stubGitHubInstallRegistry) DownloadAndInstall(
-	context.Context,
-	string,
-	string,
-	string,
+	_ context.Context,
+	_ string,
+	_ string,
+	targetDir string,
 ) (*skills.InstallResult, error) {
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "SKILL.md"), []byte(validSkillMarkdown), 0o600); err != nil {
+		return nil, err
+	}
 	return &skills.InstallResult{Version: "main"}, nil
+}
+
+type mockInvalidInstallRegistry struct{}
+
+func (m *mockInvalidInstallRegistry) Name() string { return "clawhub" }
+
+func (m *mockInvalidInstallRegistry) ResolveInstallDirName(target string) (string, error) {
+	return target, nil
+}
+
+func (m *mockInvalidInstallRegistry) SkillURL(slug, _ string) string { return slug }
+
+func (m *mockInvalidInstallRegistry) Search(context.Context, string, int) ([]skills.SearchResult, error) {
+	return nil, nil
+}
+
+func (m *mockInvalidInstallRegistry) GetSkillMeta(context.Context, string) (*skills.SkillMeta, error) {
+	return nil, nil
+}
+
+func (m *mockInvalidInstallRegistry) DownloadAndInstall(
+	_ context.Context,
+	_ string,
+	_ string,
+	targetDir string,
+) (*skills.InstallResult, error) {
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(
+		filepath.Join(targetDir, "SKILL.md"),
+		[]byte("---\nname: bad_skill\ndescription: invalid name\n---\n# Invalid\n"),
+		0o600,
+	); err != nil {
+		return nil, err
+	}
+	return &skills.InstallResult{Version: "test"}, nil
 }
 
 func TestInstallSkillToolName(t *testing.T) {
@@ -208,4 +265,21 @@ func TestInstallSkillToolAllowsGitHubURLSlug(t *testing.T) {
 	assert.Equal(t, slug, meta.RegistryURL)
 	assert.Equal(t, "main", meta.InstalledVersion)
 	assert.NotZero(t, meta.InstalledAt)
+}
+
+func TestInstallSkillToolRejectsInvalidInstalledSkill(t *testing.T) {
+	workspace := t.TempDir()
+	registryMgr := skills.NewRegistryManager()
+	registryMgr.AddRegistry(&mockInvalidInstallRegistry{})
+	tool := NewInstallSkillTool(registryMgr, workspace)
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"slug":     "broken-skill",
+		"registry": "clawhub",
+	})
+
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.ForLLM, "not a valid skill")
+	_, err := os.Stat(filepath.Join(workspace, "skills", "broken-skill"))
+	assert.True(t, os.IsNotExist(err))
 }
