@@ -261,6 +261,14 @@ func parseGitHubRefWithBaseURL(repo, githubBaseURL, defaultRef string) (GitHubRe
 		if len(parts) < 2 {
 			return GitHubRef{}, fmt.Errorf("invalid GitHub URL")
 		}
+		if len(parts) > 2 {
+			if parts[2] != "tree" && parts[2] != "blob" {
+				return GitHubRef{}, fmt.Errorf("invalid GitHub repository URL path %q", u.Path)
+			}
+			if len(parts) < 4 {
+				return GitHubRef{}, fmt.Errorf("invalid GitHub %s URL path %q", parts[2], u.Path)
+			}
+		}
 		ref := GitHubRef{
 			Owner:    parts[0],
 			RepoName: parts[1],

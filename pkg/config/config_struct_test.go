@@ -287,6 +287,29 @@ func TestSkillsRegistriesConfigUnmarshalJSONPreservesDefaultRegistries(t *testin
 	assert.Empty(t, github.Param)
 }
 
+func TestSkillsRegistriesConfigUnmarshalJSONListPreservesDefaultRegistries(t *testing.T) {
+	registries := DefaultConfig().Tools.Skills.Registries
+
+	err := json.Unmarshal([]byte(`[
+		{
+			"name": "clawhub",
+			"base_url": "https://clawhub.example.com"
+		}
+	]`), &registries)
+	assert.NoError(t, err)
+
+	clawhub, ok := registries.Get("clawhub")
+	assert.True(t, ok)
+	assert.True(t, clawhub.Enabled)
+	assert.Equal(t, "https://clawhub.example.com", clawhub.BaseURL)
+
+	github, ok := registries.Get("github")
+	assert.True(t, ok)
+	assert.True(t, github.Enabled)
+	assert.Equal(t, "https://github.com", github.BaseURL)
+	assert.Empty(t, github.Param)
+}
+
 func TestSkillsRegistriesConfigUnmarshalYAMLAppendsNewRegistryToExistingSlice(t *testing.T) {
 	registries := DefaultConfig().Tools.Skills.Registries
 

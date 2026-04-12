@@ -328,9 +328,35 @@ func (v SecureModelList) MarshalYAML() (any, error) {
 }
 
 func (v *SkillsRegistriesConfig) UnmarshalJSON(data []byte) error {
-	var list []*SkillRegistryConfig
+	var list []json.RawMessage
 	if err := json.Unmarshal(data, &list); err == nil {
-		*v = list
+		decodedList := make([]*SkillRegistryConfig, 0, len(list))
+		for _, item := range list {
+			var nameOnly struct {
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(item, &nameOnly); err != nil {
+				return err
+			}
+			registry := cloneRegistryConfig(findRegistryConfigByName(*v, nameOnly.Name))
+			if registry == nil {
+				registry = &SkillRegistryConfig{Name: nameOnly.Name}
+			}
+			if err := json.Unmarshal(item, registry); err != nil {
+				return err
+			}
+			decodedList = append(decodedList, registry)
+		}
+		if len(*v) > 0 {
+			for _, registry := range decodedList {
+				if registry == nil {
+					continue
+				}
+				v.Set(registry.Name, *registry)
+			}
+			return nil
+		}
+		*v = decodedList
 		return nil
 	}
 
@@ -345,16 +371,16 @@ func (v *SkillsRegistriesConfig) UnmarshalJSON(data []byte) error {
 			keys = append(keys, name)
 		}
 		sort.Strings(keys)
-		list = make([]*SkillRegistryConfig, 0, len(keys))
+		decodedList := make([]*SkillRegistryConfig, 0, len(keys))
 		for _, name := range keys {
 			var registry SkillRegistryConfig
 			if err := json.Unmarshal(legacy[name], &registry); err != nil {
 				return err
 			}
 			registry.Name = name
-			list = append(list, &registry)
+			decodedList = append(decodedList, &registry)
 		}
-		*v = list
+		*v = decodedList
 		return nil
 	}
 

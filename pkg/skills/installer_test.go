@@ -234,6 +234,30 @@ func TestParseGitHubRefWithBaseURL(t *testing.T) {
 	if !strings.Contains(err.Error(), `invalid GitHub URL host "ghe.example.com"`) {
 		t.Fatalf("unexpected scheme mismatch error = %v", err)
 	}
+
+	_, err = parseGitHubRefWithBaseURL(
+		"https://github.com/org/repo/pull/2442",
+		"",
+		"main",
+	)
+	if err == nil {
+		t.Fatal("parseGitHubRefWithBaseURL() error = nil, want invalid repository URL path error")
+	}
+	if !strings.Contains(err.Error(), `invalid GitHub repository URL path "/org/repo/pull/2442"`) {
+		t.Fatalf("unexpected PR URL error = %v", err)
+	}
+
+	_, err = parseGitHubRefWithBaseURL(
+		"https://github.com/org/repo/tree",
+		"",
+		"main",
+	)
+	if err == nil {
+		t.Fatal("parseGitHubRefWithBaseURL() error = nil, want invalid tree URL path error")
+	}
+	if !strings.Contains(err.Error(), `invalid GitHub tree URL path "/org/repo/tree"`) {
+		t.Fatalf("unexpected short tree URL error = %v", err)
+	}
 }
 
 func TestSkillInstallerResolveGitHubRefUsesDefaultBranch(t *testing.T) {
