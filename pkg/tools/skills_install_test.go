@@ -67,6 +67,19 @@ func (m *mockGitHubInstallRegistry) DownloadAndInstall(
 	return &skills.InstallResult{Version: "main"}, nil
 }
 
+type stubGitHubInstallRegistry struct {
+	*skills.GitHubRegistry
+}
+
+func (m *stubGitHubInstallRegistry) DownloadAndInstall(
+	context.Context,
+	string,
+	string,
+	string,
+) (*skills.InstallResult, error) {
+	return &skills.InstallResult{Version: "main"}, nil
+}
+
 func TestInstallSkillToolName(t *testing.T) {
 	tool := NewInstallSkillTool(skills.NewRegistryManager(), t.TempDir())
 	assert.Equal(t, "install_skill", tool.Name())
@@ -166,8 +179,12 @@ func TestInstallSkillToolMissingRegistry(t *testing.T) {
 }
 
 func TestInstallSkillToolAllowsGitHubURLSlug(t *testing.T) {
+	registry := skills.GitHubRegistryConfig{Enabled: true, BaseURL: "https://github.com"}.BuildRegistry()
+	githubRegistry, ok := registry.(*skills.GitHubRegistry)
+	require.True(t, ok)
+
 	registryMgr := skills.NewRegistryManager()
-	registryMgr.AddRegistry(&mockGitHubInstallRegistry{})
+	registryMgr.AddRegistry(&stubGitHubInstallRegistry{GitHubRegistry: githubRegistry})
 	workspace := t.TempDir()
 	tool := NewInstallSkillTool(registryMgr, workspace)
 
@@ -187,7 +204,7 @@ func TestInstallSkillToolAllowsGitHubURLSlug(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &meta))
 	assert.Equal(t, "third_party", meta.OriginKind)
 	assert.Equal(t, "github", meta.Registry)
-	assert.Equal(t, slug, meta.Slug)
+	assert.Equal(t, "synthetic-lab/octofriend/.agents/skills/pr-review", meta.Slug)
 	assert.Equal(t, slug, meta.RegistryURL)
 	assert.Equal(t, "main", meta.InstalledVersion)
 	assert.NotZero(t, meta.InstalledAt)

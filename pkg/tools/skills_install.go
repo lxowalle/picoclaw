@@ -198,18 +198,19 @@ type originMeta struct {
 }
 
 func writeOriginMeta(targetDir string, registry skills.SkillRegistry, slug, version string) error {
+	normalizedSlug := skills.NormalizeInstallTargetForRegistryInstance(registry, slug)
 	registryName := ""
 	registryURL := ""
 	if registry != nil {
 		registryName = registry.Name()
-		registryURL = registry.SkillURL(slug, version)
+		registryURL = registry.SkillURL(normalizedSlug, version)
 	}
 
 	meta := originMeta{
 		Version:          1,
 		OriginKind:       "third_party",
 		Registry:         registryName,
-		Slug:             slug,
+		Slug:             normalizedSlug,
 		RegistryURL:      registryURL,
 		InstalledVersion: version,
 		InstalledAt:      time.Now().UnixMilli(),

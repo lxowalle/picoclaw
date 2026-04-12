@@ -73,6 +73,14 @@ func (r *GitHubRegistry) ResolveInstallDirName(target string) (string, error) {
 	return githubInstallDirNameWithBaseURL(target, r.webBase)
 }
 
+func (r *GitHubRegistry) NormalizeInstallTarget(target string) string {
+	normalized, err := canonicalGitHubRegistrySlugWithBaseURL(target, r.webBase)
+	if err != nil {
+		return target
+	}
+	return normalized
+}
+
 func (r *GitHubRegistry) SkillURL(target, version string) string {
 	defaultRef := strings.TrimSpace(version)
 	ref, err := parseGitHubRefWithBaseURL(target, r.webBase, defaultRef)

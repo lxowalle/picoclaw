@@ -73,6 +73,27 @@ type SkillRegistry interface {
 	DownloadAndInstall(ctx context.Context, slug, version, targetDir string) (*InstallResult, error)
 }
 
+// InstallTargetNormalizer is implemented by registries that can canonicalize
+// user-provided install targets into a stable slug for origin metadata.
+type InstallTargetNormalizer interface {
+	NormalizeInstallTarget(target string) string
+}
+
+func NormalizeInstallTargetForRegistryInstance(registry SkillRegistry, target string) string {
+	if registry == nil || target == "" {
+		return target
+	}
+	normalizer, ok := registry.(InstallTargetNormalizer)
+	if !ok {
+		return target
+	}
+	normalized := normalizer.NormalizeInstallTarget(target)
+	if normalized == "" {
+		return target
+	}
+	return normalized
+}
+
 // RegistryConfig holds configuration for all skill registries.
 // This is the input to NewRegistryManagerFromConfig.
 type RegistryConfig struct {
