@@ -95,6 +95,15 @@ func LookupRegistryFromToolsConfig(cfg config.SkillsToolsConfig, name string) Sk
 	return nil
 }
 
+func GitHubInstallDirNameFromToolsConfig(cfg config.SkillsToolsConfig, target string) (string, error) {
+	registryCfg, ok := cfg.Registries.Get("github")
+	if ok {
+		registryCfg = applyLegacyGithubRegistryCompatibility(cfg, registryCfg)
+		return githubInstallDirNameWithBaseURL(target, registryCfg.BaseURL)
+	}
+	return githubInstallDirNameWithBaseURL(target, cfg.Github.BaseURL)
+}
+
 func NormalizeInstallTargetForRegistry(cfg config.SkillsToolsConfig, registryName, target string) string {
 	if registryName == "" || target == "" {
 		return target

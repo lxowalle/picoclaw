@@ -181,6 +181,47 @@ func TestSkillRegistryConfigJSONFlattensParam(t *testing.T) {
 	assert.Equal(t, "http://127.0.0.1:7890", loaded.Param["proxy"])
 }
 
+func TestSkillRegistryConfigJSONIgnoresShadowSecretFields(t *testing.T) {
+	var registry SkillRegistryConfig
+	err := json.Unmarshal([]byte(`{
+		"enabled": true,
+		"base_url": "https://github.com",
+		"_auth_token": "shadow-secret",
+		"proxy": "http://127.0.0.1:7890"
+	}`), &registry)
+	assert.NoError(t, err)
+	assert.Equal(t, "https://github.com", registry.BaseURL)
+	assert.Equal(t, "http://127.0.0.1:7890", registry.Param["proxy"])
+	_, exists := registry.Param["_auth_token"]
+	assert.False(t, exists)
+
+	registry.Param["_auth_token"] = "should-not-round-trip"
+	data, err := json.Marshal(registry)
+	assert.NoError(t, err)
+	assert.NotContains(t, string(data), "_auth_token")
+	assert.Contains(t, string(data), `"proxy":"http://127.0.0.1:7890"`)
+
+	yamlData, err := yaml.Marshal(registry)
+	assert.NoError(t, err)
+	assert.NotContains(t, string(yamlData), "_auth_token")
+	assert.Contains(t, string(yamlData), "proxy: http://127.0.0.1:7890")
+}
+
+func TestSkillRegistryConfigYAMLIgnoresShadowSecretFields(t *testing.T) {
+	var registry SkillRegistryConfig
+	err := yaml.Unmarshal([]byte(`
+enabled: true
+base_url: https://github.com
+_auth_token: shadow-secret
+proxy: http://127.0.0.1:7890
+`), &registry)
+	assert.NoError(t, err)
+	assert.Equal(t, "https://github.com", registry.BaseURL)
+	assert.Equal(t, "http://127.0.0.1:7890", registry.Param["proxy"])
+	_, exists := registry.Param["_auth_token"]
+	assert.False(t, exists)
+}
+
 func TestSkillsRegistriesConfigMarshalYAMLIncludesRegistryToken(t *testing.T) {
 	registries := SkillsRegistriesConfig{
 		&SkillRegistryConfig{

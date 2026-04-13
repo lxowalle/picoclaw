@@ -454,6 +454,10 @@ func (c *SkillRegistryConfig) UnmarshalJSON(data []byte) error {
 		switch key {
 		case "name", "enabled", "base_url", "auth_token", "param":
 			continue
+		case "_auth_token":
+			// UI/API shadow secret fields should hydrate SecureString only and must
+			// never be persisted as arbitrary registry params.
+			continue
 		default:
 			var decoded any
 			if err := json.Unmarshal(value, &decoded); err != nil {
@@ -475,7 +479,7 @@ func (c SkillRegistryConfig) MarshalJSON() ([]byte, error) {
 		m["auth_token"] = c.AuthToken
 	}
 	for key, value := range c.Param {
-		if key == "" || key == "param" {
+		if key == "" || key == "param" || strings.HasPrefix(key, "_") {
 			continue
 		}
 		if _, exists := m[key]; exists {
@@ -522,6 +526,10 @@ func (c *SkillRegistryConfig) UnmarshalYAML(value *yaml.Node) error {
 			if err := yaml.Unmarshal(data, &c.AuthToken); err != nil {
 				return err
 			}
+		case "_auth_token":
+			// UI/API shadow secret fields should hydrate SecureString only and must
+			// never be persisted as arbitrary registry params.
+			continue
 		case "param":
 			continue
 		default:
@@ -542,7 +550,7 @@ func (c SkillRegistryConfig) MarshalYAML() (any, error) {
 	}
 	keys := make([]string, 0, len(c.Param))
 	for key := range c.Param {
-		if key == "" || key == "param" {
+		if key == "" || key == "param" || strings.HasPrefix(key, "_") {
 			continue
 		}
 		keys = append(keys, key)

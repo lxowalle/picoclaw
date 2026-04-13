@@ -97,3 +97,95 @@ func TestSkillsInstallFromRegistryRejectsInvalidSkillArchive(t *testing.T) {
 	_, statErr := os.Stat(filepath.Join(workspace, "skills", "pr-review"))
 	assert.True(t, os.IsNotExist(statErr))
 }
+
+func TestSkillsRemoveFromWorkspaceRejectsDotTarget(t *testing.T) {
+	workspace := t.TempDir()
+	skillsDir := filepath.Join(workspace, "skills")
+	require.NoError(t, os.MkdirAll(skillsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillsDir, "keep.txt"), []byte("keep"), 0o644))
+
+	err := skillsRemoveFromWorkspace(workspace, config.DefaultConfig().Tools.Skills, ".")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid skill name")
+
+	_, statErr := os.Stat(skillsDir)
+	assert.NoError(t, statErr)
+	_, fileErr := os.Stat(filepath.Join(skillsDir, "keep.txt"))
+	assert.NoError(t, fileErr)
+}
+
+func TestSkillsRemoveFromWorkspaceUsesLastPathSegment(t *testing.T) {
+	workspace := t.TempDir()
+	targetDir := filepath.Join(workspace, "skills", "pr-review")
+	require.NoError(t, os.MkdirAll(targetDir, 0o755))
+
+	err := skillsRemoveFromWorkspace(
+		workspace,
+		config.DefaultConfig().Tools.Skills,
+		"https://github.com/foo/bar/tree/main/.agents/skills/pr-review",
+	)
+	require.NoError(t, err)
+
+	_, statErr := os.Stat(targetDir)
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestSkillsRemoveFromWorkspaceSupportsRepoRootGitHubBlobURL(t *testing.T) {
+	workspace := t.TempDir()
+	targetDir := filepath.Join(workspace, "skills", "bar")
+	require.NoError(t, os.MkdirAll(targetDir, 0o755))
+
+	err := skillsRemoveFromWorkspace(
+		workspace,
+		config.DefaultConfig().Tools.Skills,
+		"https://github.com/foo/bar/blob/feature/skills-registry/SKILL.md",
+	)
+	require.NoError(t, err)
+
+	_, statErr := os.Stat(targetDir)
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestSkillsRemoveFromWorkspaceSupportsGitHubEnterpriseURL(t *testing.T) {
+	workspace := t.TempDir()
+	targetDir := filepath.Join(workspace, "skills", "pr-review")
+	require.NoError(t, os.MkdirAll(targetDir, 0o755))
+
+	cfg := config.DefaultConfig()
+	githubRegistry, ok := cfg.Tools.Skills.Registries.Get("github")
+	require.True(t, ok)
+	githubRegistry.BaseURL = "https://ghe.example.com/git"
+	cfg.Tools.Skills.Registries.Set("github", githubRegistry)
+
+	err := skillsRemoveFromWorkspace(
+		workspace,
+		cfg.Tools.Skills,
+		"https://ghe.example.com/git/foo/bar/tree/main/.agents/skills/pr-review",
+	)
+	require.NoError(t, err)
+
+	_, statErr := os.Stat(targetDir)
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestSkillsRemoveFromWorkspaceDoesNotRequireEnabledGitHubRegistry(t *testing.T) {
+	workspace := t.TempDir()
+	targetDir := filepath.Join(workspace, "skills", "pr-review")
+	require.NoError(t, os.MkdirAll(targetDir, 0o755))
+
+	cfg := config.DefaultConfig()
+	githubRegistry, ok := cfg.Tools.Skills.Registries.Get("github")
+	require.True(t, ok)
+	githubRegistry.Enabled = false
+	cfg.Tools.Skills.Registries.Set("github", githubRegistry)
+
+	err := skillsRemoveFromWorkspace(
+		workspace,
+		cfg.Tools.Skills,
+		"https://github.com/foo/bar/tree/main/.agents/skills/pr-review",
+	)
+	require.NoError(t, err)
+
+	_, statErr := os.Stat(targetDir)
+	assert.True(t, os.IsNotExist(statErr))
+}

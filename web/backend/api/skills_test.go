@@ -549,6 +549,65 @@ func TestHandleDeleteSkill(t *testing.T) {
 	}
 }
 
+func TestHandleDeleteSkillPrefersWorkspaceMatch(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	homeDir := t.TempDir()
+	t.Setenv(config.EnvHome, homeDir)
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	cfg.Agents.Defaults.Workspace = workspace
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	workspaceSkillDir := filepath.Join(workspace, "skills", "delete-me-workspace")
+	if err := os.MkdirAll(workspaceSkillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspace) error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(workspaceSkillDir, "SKILL.md"),
+		[]byte("---\nname: delete-me\ndescription: workspace delete me\n---\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile(workspace) error = %v", err)
+	}
+
+	globalSkillDir := filepath.Join(homeDir, "skills", "delete-me-global")
+	if err := os.MkdirAll(globalSkillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(global) error = %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(globalSkillDir, "SKILL.md"),
+		[]byte("---\nname: delete-me\ndescription: global delete me\n---\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("WriteFile(global) error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/skills/delete-me", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if _, err := os.Stat(workspaceSkillDir); !os.IsNotExist(err) {
+		t.Fatalf("workspace skill directory should be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(globalSkillDir); err != nil {
+		t.Fatalf("global skill directory should remain, stat err=%v", err)
+	}
+}
+
 func TestHandleSearchSkills(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

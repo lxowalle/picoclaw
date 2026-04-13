@@ -989,6 +989,10 @@ const (
 	envSkillsClawHubTimeout         = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_TIMEOUT"
 	envSkillsClawHubMaxZipSize      = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_ZIP_SIZE"
 	envSkillsClawHubMaxResponseSize = "PICOCLAW_SKILLS_REGISTRIES_CLAWHUB_MAX_RESPONSE_SIZE"
+	envSkillsGitHubEnabled          = "PICOCLAW_SKILLS_REGISTRIES_GITHUB_ENABLED"
+	envSkillsGitHubBaseURL          = "PICOCLAW_SKILLS_REGISTRIES_GITHUB_BASE_URL"
+	envSkillsGitHubAuthToken        = "PICOCLAW_SKILLS_REGISTRIES_GITHUB_AUTH_TOKEN"
+	envSkillsGitHubProxy            = "PICOCLAW_SKILLS_REGISTRIES_GITHUB_PROXY"
 )
 
 func (c *SkillRegistryConfig) DecodeParam(target any) error {
@@ -1201,8 +1205,8 @@ func applySkillsRegistryEnvCompat(cfg *Config) {
 		return
 	}
 
-	registryCfg, ok := cfg.Tools.Skills.Registries.Get("clawhub")
-	if !ok {
+	registryCfg, foundClawHub := cfg.Tools.Skills.Registries.Get("clawhub")
+	if !foundClawHub {
 		registryCfg = SkillRegistryConfig{
 			Name:  "clawhub",
 			Param: map[string]any{},
@@ -1212,43 +1216,71 @@ func applySkillsRegistryEnvCompat(cfg *Config) {
 		registryCfg.Param = map[string]any{}
 	}
 
-	if raw, ok := os.LookupEnv(envSkillsClawHubEnabled); ok {
+	if raw, envSet := os.LookupEnv(envSkillsClawHubEnabled); envSet {
 		if value, err := strconv.ParseBool(strings.TrimSpace(raw)); err == nil {
 			registryCfg.Enabled = value
 		}
 	}
-	if value, ok := os.LookupEnv(envSkillsClawHubBaseURL); ok {
+	if value, envSet := os.LookupEnv(envSkillsClawHubBaseURL); envSet {
 		registryCfg.BaseURL = value
 	}
-	if value, ok := os.LookupEnv(envSkillsClawHubAuthToken); ok {
+	if value, envSet := os.LookupEnv(envSkillsClawHubAuthToken); envSet {
 		registryCfg.AuthToken = *NewSecureString(value)
 	}
-	if value, ok := os.LookupEnv(envSkillsClawHubSearchPath); ok {
+	if value, envSet := os.LookupEnv(envSkillsClawHubSearchPath); envSet {
 		registryCfg.Param["search_path"] = value
 	}
-	if value, ok := os.LookupEnv(envSkillsClawHubSkillsPath); ok {
+	if value, envSet := os.LookupEnv(envSkillsClawHubSkillsPath); envSet {
 		registryCfg.Param["skills_path"] = value
 	}
-	if value, ok := os.LookupEnv(envSkillsClawHubDownloadPath); ok {
+	if value, envSet := os.LookupEnv(envSkillsClawHubDownloadPath); envSet {
 		registryCfg.Param["download_path"] = value
 	}
-	if raw, ok := os.LookupEnv(envSkillsClawHubTimeout); ok {
+	if raw, envSet := os.LookupEnv(envSkillsClawHubTimeout); envSet {
 		if value, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
 			registryCfg.Param["timeout"] = value
 		}
 	}
-	if raw, ok := os.LookupEnv(envSkillsClawHubMaxZipSize); ok {
+	if raw, envSet := os.LookupEnv(envSkillsClawHubMaxZipSize); envSet {
 		if value, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
 			registryCfg.Param["max_zip_size"] = value
 		}
 	}
-	if raw, ok := os.LookupEnv(envSkillsClawHubMaxResponseSize); ok {
+	if raw, envSet := os.LookupEnv(envSkillsClawHubMaxResponseSize); envSet {
 		if value, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
 			registryCfg.Param["max_response_size"] = value
 		}
 	}
 
 	cfg.Tools.Skills.Registries.Set("clawhub", registryCfg)
+
+	githubCfg, foundGitHub := cfg.Tools.Skills.Registries.Get("github")
+	if !foundGitHub {
+		githubCfg = SkillRegistryConfig{
+			Name:  "github",
+			Param: map[string]any{},
+		}
+	}
+	if githubCfg.Param == nil {
+		githubCfg.Param = map[string]any{}
+	}
+
+	if raw, envSet := os.LookupEnv(envSkillsGitHubEnabled); envSet {
+		if value, err := strconv.ParseBool(strings.TrimSpace(raw)); err == nil {
+			githubCfg.Enabled = value
+		}
+	}
+	if value, envSet := os.LookupEnv(envSkillsGitHubBaseURL); envSet {
+		githubCfg.BaseURL = value
+	}
+	if value, envSet := os.LookupEnv(envSkillsGitHubAuthToken); envSet {
+		githubCfg.AuthToken = *NewSecureString(value)
+	}
+	if value, envSet := os.LookupEnv(envSkillsGitHubProxy); envSet {
+		githubCfg.Param["proxy"] = value
+	}
+
+	cfg.Tools.Skills.Registries.Set("github", githubCfg)
 }
 
 func makeBackup(path string) error {

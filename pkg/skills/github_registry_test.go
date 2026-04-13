@@ -186,6 +186,7 @@ func TestGitHubRegistrySkillURLUsesProvidedVersionAndBasePath(t *testing.T) {
 		"https://github.com/org/repo/tree/main/.agents/skills/pr-review",
 		registry.SkillURL("https://github.com/org/repo/tree/main/.agents/skills/pr-review", ""),
 	)
+	assert.Empty(t, registry.SkillURL("org/repo/.agents/skills/pr-review", ""))
 }
 
 func TestGitHubRegistryResolveInstallDirNameSupportsFullURLs(t *testing.T) {

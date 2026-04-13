@@ -210,32 +210,23 @@ func splitGitHubTreeOrBlobRefPath(parts []string, defaultRef string) (string, st
 	if len(parts) == 0 {
 		return defaultRef, ""
 	}
-	for i := 1; i < len(parts); i++ {
-		candidateRef := strings.Join(parts[:i], "/")
-		candidateSubPath := strings.Join(parts[i:], "/")
-		if looksLikeSkillSubPath(candidateSubPath) {
-			return candidateRef, candidateSubPath
-		}
+	if anchor := knownSkillSubPathAnchor(parts); anchor > 0 {
+		return strings.Join(parts[:anchor], "/"), strings.Join(parts[anchor:], "/")
+	}
+	if parts[len(parts)-1] == "SKILL.md" {
+		return strings.Join(parts[:len(parts)-1], "/"), "SKILL.md"
 	}
 	return parts[0], strings.Join(parts[1:], "/")
 }
 
-func looksLikeSkillSubPath(subPath string) bool {
-	subPath = strings.Trim(strings.TrimSpace(subPath), "/")
-	if subPath == "" {
-		return false
+func knownSkillSubPathAnchor(parts []string) int {
+	for i := 1; i < len(parts); i++ {
+		candidateSubPath := strings.Join(parts[i:], "/")
+		if strings.HasPrefix(candidateSubPath, ".agents/skills/") || strings.HasPrefix(candidateSubPath, "skills/") {
+			return i
+		}
 	}
-	if isSkillMarkdownPath(subPath) {
-		return true
-	}
-	parts := strings.Split(subPath, "/")
-	if len(parts) >= 2 && parts[0] == "skills" {
-		return true
-	}
-	if len(parts) >= 3 && parts[0] == ".agents" && parts[1] == "skills" {
-		return true
-	}
-	return false
+	return -1
 }
 
 func isSkillMarkdownPath(subPath string) bool {
@@ -437,11 +428,19 @@ func (si *SkillInstaller) InstallFromGitHubToDir(
 		return nil, err
 	}
 	ref := target.Ref
+	apiSubPath := strings.Trim(ref.SubPath, "/")
+	if isSkillMarkdownPath(apiSubPath) {
+		if dir := path.Dir(apiSubPath); dir == "." {
+			apiSubPath = ""
+		} else {
+			apiSubPath = dir
+		}
+	}
 
 	// Build GitHub API URL
 	apiPath := path.Join(ref.Owner, ref.RepoName, "contents")
-	if ref.SubPath != "" {
-		apiPath = path.Join(apiPath, ref.SubPath)
+	if apiSubPath != "" {
+		apiPath = path.Join(apiPath, apiSubPath)
 	}
 	apiURL := fmt.Sprintf("%s/repos/%s?ref=%s", target.Endpoints.APIBaseURL, apiPath, url.QueryEscape(ref.Ref))
 

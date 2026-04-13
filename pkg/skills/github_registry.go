@@ -90,15 +90,18 @@ func (r *GitHubRegistry) SkillURL(target, version string) string {
 	ref := parsedTarget.Ref
 	base := strings.TrimRight(parsedTarget.Endpoints.WebBaseURL, "/")
 	urlPath := path.Join(ref.Owner, ref.RepoName)
-	if ref.Ref == "" {
-		return fmt.Sprintf("%s/%s", base, urlPath)
-	}
 	if ref.SubPath != "" {
+		if ref.Ref == "" {
+			return ""
+		}
 		viewKind := "tree"
 		if isSkillMarkdownPath(ref.SubPath) {
 			viewKind = "blob"
 		}
 		return fmt.Sprintf("%s/%s/%s/%s/%s", base, urlPath, viewKind, ref.Ref, ref.SubPath)
+	}
+	if ref.Ref == "" {
+		return fmt.Sprintf("%s/%s", base, urlPath)
 	}
 	if ref.Ref != "main" {
 		return fmt.Sprintf("%s/%s/tree/%s", base, urlPath, ref.Ref)

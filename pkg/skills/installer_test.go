@@ -289,6 +289,23 @@ func TestParseGitHubTargetWithBaseURLPreservesSourceEndpoints(t *testing.T) {
 	}
 }
 
+func TestParseGitHubTargetWithBaseURLPreservesSlashBranchForRepoRootBlobSkill(t *testing.T) {
+	target, err := parseGitHubTargetWithBaseURL(
+		"https://github.com/org/repo/blob/feature/skills-registry/SKILL.md",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("parseGitHubTargetWithBaseURL() unexpected error = %v", err)
+	}
+	if target.Ref.Ref != "feature/skills-registry" {
+		t.Fatalf("ref = %q, want feature/skills-registry", target.Ref.Ref)
+	}
+	if target.Ref.SubPath != "SKILL.md" {
+		t.Fatalf("subPath = %q, want SKILL.md", target.Ref.SubPath)
+	}
+}
+
 func TestSkillInstallerResolveGitHubRefUsesDefaultBranch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -324,11 +341,21 @@ func TestSkillInstallerInstallFromGitHubToDirSupportsBlobSkillURL(t *testing.T) 
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/v3/repos/org/repo/contents/.agents/skills/pr-review/SKILL.md":
+		case "/api/v3/repos/org/repo/contents/.agents/skills/pr-review":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"type":"file","name":"SKILL.md"}`))
+			_, _ = w.Write([]byte(`[
+				{"type":"file","name":"SKILL.md","download_url":"` + server.URL + `/raw/org/repo/main/.agents/skills/pr-review/SKILL.md"},
+				{"type":"dir","name":"scripts","url":"` + server.URL + `/api/v3/repos/org/repo/contents/.agents/skills/pr-review/scripts?ref=main"}
+			]`))
+		case "/api/v3/repos/org/repo/contents/.agents/skills/pr-review/scripts":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+				{"type":"file","name":"check.sh","download_url":"` + server.URL + `/raw/org/repo/main/.agents/skills/pr-review/scripts/check.sh"}
+			]`))
 		case "/raw/org/repo/main/.agents/skills/pr-review/SKILL.md":
 			_, _ = w.Write([]byte("---\nname: pr-review\ndescription: PR review skill\n---\n# PR Review\n"))
+		case "/raw/org/repo/main/.agents/skills/pr-review/scripts/check.sh":
+			_, _ = w.Write([]byte("#!/bin/sh\nexit 0\n"))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -360,6 +387,11 @@ func TestSkillInstallerInstallFromGitHubToDirSupportsBlobSkillURL(t *testing.T) 
 	}
 	if !strings.Contains(string(content), "name: pr-review") {
 		t.Fatalf("SKILL.md content = %q, want skill metadata", string(content))
+	}
+
+	scriptPath := filepath.Join(targetDir, "scripts", "check.sh")
+	if _, err := os.Stat(scriptPath); err != nil {
+		t.Fatalf("Stat(scripts/check.sh) error = %v", err)
 	}
 }
 

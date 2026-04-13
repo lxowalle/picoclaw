@@ -493,13 +493,14 @@ func (h *Handler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	workspaceSkillWriteMu.Lock()
 	defer workspaceSkillWriteMu.Unlock()
 
+	var matchedNonWorkspace bool
 	for _, skill := range loader.ListSkills() {
 		if skill.Name != name {
 			continue
 		}
 		if skill.Source != "workspace" {
-			http.Error(w, "only workspace skills can be deleted", http.StatusBadRequest)
-			return
+			matchedNonWorkspace = true
+			continue
 		}
 		if err := os.RemoveAll(filepath.Dir(skill.Path)); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to delete skill: %v", err), http.StatusInternalServerError)
@@ -507,6 +508,10 @@ func (h *Handler) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		return
+	}
+	if matchedNonWorkspace {
+		http.Error(w, "only workspace skills can be deleted", http.StatusBadRequest)
 		return
 	}
 

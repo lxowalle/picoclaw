@@ -527,4 +527,77 @@ skills:
 		require.True(t, ok)
 		assert.Equal(t, "https://github.com", githubRegistry.BaseURL)
 	})
+
+	t.Run("Legacy direct registry security entries remain supported", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		configPath := filepath.Join(tmpDir, "config.json")
+		configContent := `{
+  "version": 1,
+  "tools": {
+    "skills": {
+      "registries": {
+        "clawhub": {
+          "enabled": true,
+          "base_url": "https://clawhub.ai"
+        }
+      }
+    }
+  }
+}`
+		err := os.WriteFile(configPath, []byte(configContent), 0o644)
+		require.NoError(t, err)
+
+		securityPath := filepath.Join(tmpDir, SecurityConfigFile)
+		securityContent := `skills:
+  clawhub:
+    auth_token: "legacy-clawhub-token"
+`
+		err = os.WriteFile(securityPath, []byte(securityContent), 0o600)
+		require.NoError(t, err)
+
+		cfg, err := LoadConfig(configPath)
+		require.NoError(t, err)
+
+		registry, ok := cfg.Tools.Skills.Registries.Get("clawhub")
+		require.True(t, ok)
+		assert.Equal(t, "legacy-clawhub-token", registry.AuthToken.String())
+	})
+
+	t.Run("Legacy github security token populates github registry", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		configPath := filepath.Join(tmpDir, "config.json")
+		configContent := `{
+  "version": 1,
+  "tools": {
+    "skills": {
+      "registries": {
+        "github": {
+          "enabled": true,
+          "base_url": "https://github.com"
+        }
+      }
+    }
+  }
+}`
+		err := os.WriteFile(configPath, []byte(configContent), 0o644)
+		require.NoError(t, err)
+
+		securityPath := filepath.Join(tmpDir, SecurityConfigFile)
+		securityContent := `skills:
+  github:
+    token: "legacy-github-token"
+`
+		err = os.WriteFile(securityPath, []byte(securityContent), 0o600)
+		require.NoError(t, err)
+
+		cfg, err := LoadConfig(configPath)
+		require.NoError(t, err)
+
+		registry, ok := cfg.Tools.Skills.Registries.Get("github")
+		require.True(t, ok)
+		assert.Equal(t, "legacy-github-token", cfg.Tools.Skills.Github.Token.String())
+		assert.Equal(t, "legacy-github-token", registry.AuthToken.String())
+	})
 }

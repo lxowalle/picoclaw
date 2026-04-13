@@ -153,15 +153,21 @@ func workspaceHasValidSkillDirectory(workspace, directory string) bool {
 	return false
 }
 
-func skillsRemoveFromWorkspace(workspace, skillName string) error {
+func skillsRemoveFromWorkspace(workspace string, toolsConfig config.SkillsToolsConfig, skillName string) error {
 	name := strings.TrimSpace(skillName)
 	name = strings.Trim(name, "/")
 	if name == "" {
 		return fmt.Errorf("skill name is required")
 	}
 	if strings.Contains(name, "/") {
-		parts := strings.Split(name, "/")
-		name = parts[len(parts)-1]
+		dirName, err := skills.GitHubInstallDirNameFromToolsConfig(toolsConfig, name)
+		if err != nil || dirName == "" {
+			return fmt.Errorf("invalid skill name %q", skillName)
+		}
+		name = dirName
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("invalid skill name %q", skillName)
 	}
 	skillDir := filepath.Join(workspace, "skills", name)
 	if _, err := os.Stat(skillDir); os.IsNotExist(err) {
