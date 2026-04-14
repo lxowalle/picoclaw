@@ -164,11 +164,19 @@ PicoClaw 几乎可以部署在任何 Linux 设备上！
 
 ### 从源码构建（开发用）
 
+前置要求：
+
+- Go 1.25+
+- Node.js 22+ 和 pnpm 10.33.0+（用于 Web UI / launcher 构建）
+
 ```bash
 git clone https://github.com/sipeed/picoclaw.git
 
 cd picoclaw
 make deps
+
+# 安装前端依赖
+(cd web/frontend && pnpm install --frozen-lockfile)
 
 # 构建核心二进制文件
 make build
@@ -176,7 +184,7 @@ make build
 # 构建 Web UI Launcher（WebUI 模式必需）
 make build-launcher
 
-# 为多平台构建
+# 为 Makefile 管理的所有平台构建核心二进制文件
 make build-all
 
 # 为 Raspberry Pi Zero 2 W 构建（32位: make build-linux-arm; 64位: make build-linux-arm64）
