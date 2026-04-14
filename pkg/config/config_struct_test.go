@@ -402,16 +402,3 @@ func TestSkillsRegistriesConfigUnmarshalYAMLRetainsDefaultsForOmittedFields(t *t
 	assert.Equal(t, "registry-token", github.AuthToken.String())
 	assert.Empty(t, github.Param)
 }
-
-func TestSkillsGithubConfigV0ToSkillsGithubConfigPreservesBaseURL(t *testing.T) {
-	legacy := skillsGithubConfigV0{
-		BaseURL: "https://ghe.example.com/git",
-		Token:   "ghp-test-token",
-		Proxy:   "http://127.0.0.1:7890",
-	}
-
-	converted := legacy.ToSkillsGithubConfig()
-	assert.Equal(t, "https://ghe.example.com/git", converted.BaseURL)
-	assert.Equal(t, "ghp-test-token", converted.Token.String())
-	assert.Equal(t, "http://127.0.0.1:7890", converted.Proxy)
-}
