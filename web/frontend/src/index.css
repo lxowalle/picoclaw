@@ -157,6 +157,69 @@
   height: calc(100svh - 3.5rem);
 }
 
+/* Markdown code highlighting (rehype-highlight / highlight.js classes) */
+.prose pre code.hljs,
+.prose pre code[class*="language-"] {
+  display: block;
+  overflow-x: auto;
+  background: transparent;
+  padding: 0;
+  color: #e4e4e7;
+}
+
+.prose pre code .hljs-comment,
+.prose pre code .hljs-quote {
+  color: #71717a;
+}
+
+.prose pre code .hljs-keyword,
+.prose pre code .hljs-selector-tag,
+.prose pre code .hljs-subst {
+  color: #f472b6;
+}
+
+.prose pre code .hljs-string,
+.prose pre code .hljs-doctag,
+.prose pre code .hljs-regexp,
+.prose pre code .hljs-addition,
+.prose pre code .hljs-attribute,
+.prose pre code .hljs-template-tag,
+.prose pre code .hljs-template-variable {
+  color: #34d399;
+}
+
+.prose pre code .hljs-number,
+.prose pre code .hljs-literal,
+.prose pre code .hljs-bullet,
+.prose pre code .hljs-meta,
+.prose pre code .hljs-built_in,
+.prose pre code .hljs-builtin-name,
+.prose pre code .hljs-symbol,
+.prose pre code .hljs-variable,
+.prose pre code .hljs-link,
+.prose pre code .hljs-type,
+.prose pre code .hljs-selector-class,
+.prose pre code .hljs-selector-attr,
+.prose pre code .hljs-selector-pseudo {
+  color: #22d3ee;
+}
+
+.prose pre code .hljs-title,
+.prose pre code .hljs-section,
+.prose pre code .hljs-name,
+.prose pre code .hljs-selector-id,
+.prose pre code .hljs-deletion {
+  color: #60a5fa;
+}
+
+.prose pre code .hljs-emphasis {
+  font-style: italic;
+}
+
+.prose pre code .hljs-strong {
+  font-weight: 700;
+}
+
 /* Typing indicator animations */
 @keyframes shimmer {
   0% {
