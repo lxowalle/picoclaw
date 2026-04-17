@@ -138,6 +138,16 @@ func outboundMediaChatID(msg bus.OutboundMediaMessage) string {
 	return msg.ChatID
 }
 
+func dismissTrackedToolFeedbackMessage(ctx context.Context, ch Channel, chatID string) {
+	if cleaner, ok := ch.(toolFeedbackMessageCleaner); ok {
+		cleaner.DismissToolFeedbackMessage(ctx, chatID)
+		return
+	}
+	if tracker, ok := ch.(toolFeedbackMessageTracker); ok {
+		tracker.ClearToolFeedbackMessage(chatID)
+	}
+}
+
 // RecordPlaceholder registers a placeholder message for later editing.
 // Implements PlaceholderRecorder.
 func (m *Manager) RecordPlaceholder(channel, chatID, placeholderID string) {
@@ -218,16 +228,12 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 		}
 	}
 
-	if !outboundMessageIsToolFeedback(msg) {
+	isToolFeedback := outboundMessageIsToolFeedback(msg)
+	if !isToolFeedback {
 		if finalizer, ok := ch.(toolFeedbackMessageFinalizer); ok {
 			if msgIDs, handled := finalizer.FinalizeToolFeedbackMessage(ctx, msg); handled {
 				return msgIDs, true
 			}
-		}
-		if cleaner, ok := ch.(toolFeedbackMessageCleaner); ok {
-			cleaner.DismissToolFeedbackMessage(ctx, chatID)
-		} else if tracker, ok := ch.(toolFeedbackMessageTracker); ok {
-			tracker.ClearToolFeedbackMessage(chatID)
 		}
 	}
 
@@ -243,6 +249,9 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 				}
 			}
 		}
+		if !isToolFeedback {
+			dismissTrackedToolFeedbackMessage(ctx, ch, chatID)
+		}
 		return nil, true
 	}
 
@@ -251,12 +260,14 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 		if entry, ok := v.(placeholderEntry); ok && entry.id != "" {
 			if editor, ok := ch.(MessageEditor); ok {
 				content := msg.Content
-				if outboundMessageIsToolFeedback(msg) {
+				if isToolFeedback {
 					content = InitialAnimatedToolFeedbackContent(msg.Content)
 				}
 				if err := editor.EditMessage(ctx, chatID, entry.id, content); err == nil {
-					if tracker, ok := ch.(toolFeedbackMessageTracker); ok && outboundMessageIsToolFeedback(msg) {
+					if tracker, ok := ch.(toolFeedbackMessageTracker); ok && isToolFeedback {
 						tracker.RecordToolFeedbackMessage(chatID, entry.id, msg.Content)
+					} else if !isToolFeedback {
+						dismissTrackedToolFeedbackMessage(ctx, ch, chatID)
 					}
 					return []string{entry.id}, true
 				}
@@ -275,12 +286,6 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 func (m *Manager) preSendMedia(ctx context.Context, name string, msg bus.OutboundMediaMessage, ch Channel) {
 	chatID := outboundMediaChatID(msg)
 	key := name + ":" + chatID
-
-	if cleaner, ok := ch.(toolFeedbackMessageCleaner); ok {
-		cleaner.DismissToolFeedbackMessage(ctx, chatID)
-	} else if tracker, ok := ch.(toolFeedbackMessageTracker); ok {
-		tracker.ClearToolFeedbackMessage(chatID)
-	}
 
 	// 1. Stop typing
 	if v, loaded := m.typingStops.LoadAndDelete(key); loaded {
@@ -360,22 +365,27 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID string) (
 	// Mark streamActive on Finalize so preSend knows to clean up the placeholder
 	key := channelName + ":" + chatID
 	return &finalizeHookStreamer{
-		Streamer:   streamer,
-		onFinalize: func() { m.streamActive.Store(key, true) },
+		Streamer: streamer,
+		onFinalize: func(finalizeCtx context.Context) {
+			dismissTrackedToolFeedbackMessage(finalizeCtx, ch, chatID)
+			m.streamActive.Store(key, true)
+		},
 	}, true
 }
 
 // finalizeHookStreamer wraps a Streamer to run a hook on Finalize.
 type finalizeHookStreamer struct {
 	Streamer
-	onFinalize func()
+	onFinalize func(context.Context)
 }
 
 func (s *finalizeHookStreamer) Finalize(ctx context.Context, content string) error {
 	if err := s.Streamer.Finalize(ctx, content); err != nil {
 		return err
 	}
-	s.onFinalize()
+	if s.onFinalize != nil {
+		s.onFinalize(ctx)
+	}
 	return nil
 }
 
@@ -817,8 +827,9 @@ func (m *Manager) runWorker(ctx context.Context, name string, w *channelWorker) 
 			// Collect all message chunks to send
 			var chunks []string
 
-			// Step 1: Try marker-based splitting if enabled
-			if m.config != nil && m.config.Agents.Defaults.SplitOnMarker {
+			// Step 1: Try marker-based splitting if enabled.
+			// Tool feedback must stay a single message, so it skips marker splitting.
+			if m.config != nil && m.config.Agents.Defaults.SplitOnMarker && !outboundMessageIsToolFeedback(msg) {
 				if markerChunks := SplitByMarker(msg.Content); len(markerChunks) > 1 {
 					for _, chunk := range markerChunks {
 						chunkMsg := msg

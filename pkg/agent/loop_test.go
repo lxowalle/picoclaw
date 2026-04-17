@@ -1794,6 +1794,43 @@ func (m *toolFeedbackReasoningProvider) GetDefaultModel() string {
 	return "tool-feedback-reasoning-model"
 }
 
+type toolFeedbackExtraContentProvider struct {
+	filePath string
+	calls    int
+}
+
+func (m *toolFeedbackExtraContentProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
+	m.calls++
+	if m.calls == 1 {
+		return &providers.LLMResponse{
+			ToolCalls: []providers.ToolCall{{
+				ID:        "call_explicit_read_file",
+				Type:      "function",
+				Name:      "read_file",
+				Arguments: map[string]any{"path": m.filePath},
+				ExtraContent: &providers.ExtraContent{
+					ToolFeedbackExplanation: "Read README.md first to confirm the current project structure.",
+				},
+			}},
+		}, nil
+	}
+
+	return &providers.LLMResponse{
+		Content:   "DONE",
+		ToolCalls: []providers.ToolCall{},
+	}, nil
+}
+
+func (m *toolFeedbackExtraContentProvider) GetDefaultModel() string {
+	return "tool-feedback-extra-content-model"
+}
+
 func TestToolFeedbackExplanationFromResponse_UsesCurrentContentFirst(t *testing.T) {
 	response := &providers.LLMResponse{
 		Content:          "Read README.md first",
@@ -1811,10 +1848,15 @@ func TestToolFeedbackExplanationFromResponse_UsesCurrentContentFirst(t *testing.
 	}
 }
 
-func TestToolFeedbackExplanationFromResponse_FallsBackToReasoningContent(t *testing.T) {
+func TestToolFeedbackExplanationFromResponse_UsesExplicitToolCallExtraContent(t *testing.T) {
 	response := &providers.LLMResponse{
-		Content:          "",
-		ReasoningContent: "current reasoning fallback",
+		ToolCalls: []providers.ToolCall{{
+			ID:   "call_1",
+			Name: "read_file",
+			ExtraContent: &providers.ExtraContent{
+				ToolFeedbackExplanation: "Read README.md first to confirm the current project structure.",
+			},
+		}},
 	}
 	messages := []providers.Message{
 		{Role: "user", Content: "check file"},
@@ -1823,15 +1865,73 @@ func TestToolFeedbackExplanationFromResponse_FallsBackToReasoningContent(t *test
 	}
 
 	got := toolFeedbackExplanationFromResponse(response, messages, 300)
-	if got != "current reasoning fallback" {
-		t.Fatalf("toolFeedbackExplanationFromResponse() = %q, want reasoning fallback", got)
+	if got != "Read README.md first to confirm the current project structure." {
+		t.Fatalf("toolFeedbackExplanationFromResponse() = %q, want explicit tool feedback explanation", got)
 	}
 }
 
-func TestToolFeedbackExplanationFromResponse_UsesLatestUserContentAsLastResort(t *testing.T) {
+func TestToolFeedbackExplanationForToolCall_PrefersToolSpecificExtraContent(t *testing.T) {
+	response := &providers.LLMResponse{
+		Content: "Shared explanation",
+		ToolCalls: []providers.ToolCall{
+			{
+				ID:   "call_1",
+				Name: "read_file",
+				ExtraContent: &providers.ExtraContent{
+					ToolFeedbackExplanation: "Read README.md first.",
+				},
+			},
+			{
+				ID:   "call_2",
+				Name: "edit_file",
+				ExtraContent: &providers.ExtraContent{
+					ToolFeedbackExplanation: "Update config example after reading it.",
+				},
+			},
+		},
+	}
+
+	got1 := toolFeedbackExplanationForToolCall(response, response.ToolCalls[0], nil, 300)
+	got2 := toolFeedbackExplanationForToolCall(response, response.ToolCalls[1], nil, 300)
+	if got1 != "Read README.md first." {
+		t.Fatalf("toolFeedbackExplanationForToolCall() first = %q, want tool-specific explanation", got1)
+	}
+	if got2 != "Update config example after reading it." {
+		t.Fatalf("toolFeedbackExplanationForToolCall() second = %q, want tool-specific explanation", got2)
+	}
+}
+
+func TestToolFeedbackExplanationForToolCall_DoesNotReuseAnotherToolCallExplanation(t *testing.T) {
+	response := &providers.LLMResponse{
+		ToolCalls: []providers.ToolCall{
+			{
+				ID:   "call_1",
+				Name: "read_file",
+			},
+			{
+				ID:   "call_2",
+				Name: "edit_file",
+				ExtraContent: &providers.ExtraContent{
+					ToolFeedbackExplanation: "Update config example after reading it.",
+				},
+			},
+		},
+	}
+	messages := []providers.Message{
+		{Role: "user", Content: "inspect the config and update the example"},
+	}
+
+	got := toolFeedbackExplanationForToolCall(response, response.ToolCalls[0], messages, 300)
+	want := utils.ToolFeedbackContinuationHint + ": inspect the config and update the example"
+	if got != want {
+		t.Fatalf("toolFeedbackExplanationForToolCall() = %q, want %q", got, want)
+	}
+}
+
+func TestToolFeedbackExplanationFromResponse_DoesNotUseReasoningContent(t *testing.T) {
 	response := &providers.LLMResponse{
 		Content:          "",
-		ReasoningContent: "",
+		ReasoningContent: "hidden reasoning should not be shown",
 	}
 	messages := []providers.Message{
 		{Role: "user", Content: "check file"},
@@ -3770,7 +3870,7 @@ func TestProcessMessage_PublishesToolFeedbackWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestProcessMessage_PublishesToolFeedbackFromReasoningContent(t *testing.T) {
+func TestProcessMessage_DoesNotLeakReasoningContentInToolFeedback(t *testing.T) {
 	tmpDir := t.TempDir()
 	heartbeatFile := filepath.Join(tmpDir, "tool-feedback-reasoning.txt")
 	if err := os.WriteFile(heartbeatFile, []byte("tool feedback task"), 0o644); err != nil {
@@ -3819,11 +3919,17 @@ func TestProcessMessage_PublishesToolFeedbackFromReasoningContent(t *testing.T) 
 		if !strings.Contains(outbound.Content, "`read_file`") {
 			t.Fatalf("tool feedback content = %q, want read_file summary", outbound.Content)
 		}
-		if !strings.Contains(outbound.Content, "Read README.md first") {
-			t.Fatalf("tool feedback content = %q, want reasoning fallback", outbound.Content)
+		if !strings.Contains(outbound.Content, utils.ToolFeedbackContinuationHint) {
+			t.Fatalf("tool feedback content = %q, want continuation hint fallback", outbound.Content)
+		}
+		if !strings.Contains(outbound.Content, "check reasoning fallback") {
+			t.Fatalf("tool feedback content = %q, want current user intent fallback", outbound.Content)
+		}
+		if strings.Contains(outbound.Content, "Read README.md first") {
+			t.Fatalf("tool feedback content = %q, should not leak hidden reasoning", outbound.Content)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("expected outbound tool feedback for reasoning fallback")
+		t.Fatal("expected outbound tool feedback without leaking reasoning")
 	}
 }
 

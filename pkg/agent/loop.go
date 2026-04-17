@@ -874,18 +874,54 @@ func toolFeedbackExplanationFromResponse(
 	}
 	explanation := strings.TrimSpace(response.Content)
 	if explanation == "" {
-		explanation = strings.TrimSpace(response.Reasoning)
+		explanation = toolFeedbackExplanationFromToolCalls(response.ToolCalls)
 	}
 	if explanation == "" {
-		explanation = strings.TrimSpace(response.ReasoningContent)
-	}
-	if explanation == "" {
-		explanation = latestUserContent(messages)
-		if explanation != "" {
-			explanation = utils.ToolFeedbackContinuationHint + ": " + explanation
-		}
+		explanation = toolFeedbackExplanationFromMessages(messages)
 	}
 	return utils.Truncate(explanation, maxLen)
+}
+
+func toolFeedbackExplanationFromToolCalls(toolCalls []providers.ToolCall) string {
+	for _, tc := range toolCalls {
+		if tc.ExtraContent == nil {
+			continue
+		}
+		if explanation := strings.TrimSpace(tc.ExtraContent.ToolFeedbackExplanation); explanation != "" {
+			return explanation
+		}
+	}
+	return ""
+}
+
+func toolFeedbackExplanationForToolCall(
+	response *providers.LLMResponse,
+	toolCall providers.ToolCall,
+	messages []providers.Message,
+	maxLen int,
+) string {
+	if toolCall.ExtraContent != nil {
+		if explanation := strings.TrimSpace(toolCall.ExtraContent.ToolFeedbackExplanation); explanation != "" {
+			return utils.Truncate(explanation, maxLen)
+		}
+	}
+	if response == nil {
+		return utils.Truncate(toolFeedbackExplanationFromMessages(messages), maxLen)
+	}
+
+	explanation := strings.TrimSpace(response.Content)
+	if explanation == "" {
+		explanation = toolFeedbackExplanationFromMessages(messages)
+	}
+	return utils.Truncate(explanation, maxLen)
+}
+
+func toolFeedbackExplanationFromMessages(messages []providers.Message) string {
+	explanation := latestUserContent(messages)
+	if explanation != "" {
+		return utils.ToolFeedbackContinuationHint + ": " + explanation
+	}
+	return ""
 }
 
 func shouldPublishToolFeedback(cfg *config.Config, ts *turnState) bool {
@@ -2723,12 +2759,6 @@ turnLoop:
 				"count":     len(normalizedToolCalls),
 				"iteration": iteration,
 			})
-		toolFeedbackExplanation := toolFeedbackExplanationFromResponse(
-			response,
-			messages,
-			al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength(),
-		)
-
 		allResponsesHandled := len(normalizedToolCalls) > 0
 		assistantMsg := providers.Message{
 			Role:             "assistant",
@@ -2737,6 +2767,12 @@ turnLoop:
 		}
 		for _, tc := range normalizedToolCalls {
 			argumentsJSON, _ := json.Marshal(tc.Arguments)
+			toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
+				response,
+				tc,
+				messages,
+				al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength(),
+			)
 			extraContent := tc.ExtraContent
 			if strings.TrimSpace(toolFeedbackExplanation) != "" {
 				if extraContent == nil {
@@ -2822,6 +2858,12 @@ turnLoop:
 
 						// Send tool feedback to chat channel if enabled (same as normal tool execution)
 						if shouldPublishToolFeedback(al.cfg, ts) {
+							toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
+								response,
+								tc,
+								messages,
+								al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength(),
+							)
 							feedbackMsg := utils.FormatToolFeedbackMessage(toolName, toolFeedbackExplanation)
 							fbCtx, fbCancel := context.WithTimeout(turnCtx, 3*time.Second)
 							_ = al.bus.PublishOutbound(fbCtx, outboundMessageForTurnWithKind(ts, feedbackMsg, messageKindToolFeedback))
@@ -3095,6 +3137,12 @@ turnLoop:
 
 			// Send tool feedback to chat channel if enabled (from HEAD)
 			if shouldPublishToolFeedback(al.cfg, ts) {
+				toolFeedbackExplanation := toolFeedbackExplanationForToolCall(
+					response,
+					tc,
+					messages,
+					al.cfg.Agents.Defaults.GetToolFeedbackMaxArgsLength(),
+				)
 				feedbackMsg := utils.FormatToolFeedbackMessage(tc.Name, toolFeedbackExplanation)
 				fbCtx, fbCancel := context.WithTimeout(turnCtx, 3*time.Second)
 				_ = al.bus.PublishOutbound(fbCtx, outboundMessageForTurnWithKind(ts, feedbackMsg, messageKindToolFeedback))

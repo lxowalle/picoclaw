@@ -156,6 +156,7 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 	}
 
 	isToolFeedback := outboundMessageIsToolFeedback(msg)
+	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(msg.ChatID)
 	if isToolFeedback {
 		animatedContent := channels.InitialAnimatedToolFeedbackContent(msg.Content)
 		if msgID, ok := c.currentToolFeedbackMessage(msg.ChatID); ok {
@@ -169,7 +170,6 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		if msgIDs, handled := c.FinalizeToolFeedbackMessage(ctx, msg); handled {
 			return msgIDs, nil
 		}
-		c.DismissToolFeedbackMessage(ctx, msg.ChatID)
 	}
 
 	// Build interactive card with markdown content
@@ -181,14 +181,13 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 	if err != nil {
 		// If card build fails, fall back to plain text
 		msgID, sendErr := c.sendText(ctx, msg.ChatID, sendContent)
-		if sendErr == nil && isToolFeedback {
-			c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
-		}
-		if !isToolFeedback {
-			c.ClearToolFeedbackMessage(msg.ChatID)
-		}
 		if sendErr != nil {
 			return nil, sendErr
+		}
+		if isToolFeedback {
+			c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
+		} else if hasTrackedMsg {
+			c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 		}
 		return []string{msgID}, nil
 	}
@@ -198,8 +197,8 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 	if err == nil {
 		if isToolFeedback {
 			c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
-		} else {
-			c.ClearToolFeedbackMessage(msg.ChatID)
+		} else if hasTrackedMsg {
+			c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 		}
 		return []string{msgID}, nil
 	}
@@ -220,8 +219,8 @@ func (c *FeishuChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]st
 		if textErr == nil {
 			if isToolFeedback {
 				c.RecordToolFeedbackMessage(msg.ChatID, msgID, msg.Content)
-			} else {
-				c.ClearToolFeedbackMessage(msg.ChatID)
+			} else if hasTrackedMsg {
+				c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 			}
 			return []string{msgID}, nil
 		}
@@ -329,6 +328,13 @@ func (c *FeishuChannel) currentToolFeedbackMessage(chatID string) (string, bool)
 	return c.progress.Current(chatID)
 }
 
+func (c *FeishuChannel) takeToolFeedbackMessage(chatID string) (string, string, bool) {
+	if c.progress == nil {
+		return "", "", false
+	}
+	return c.progress.Take(chatID)
+}
+
 func (c *FeishuChannel) RecordToolFeedbackMessage(chatID, messageID, content string) {
 	if c.progress == nil {
 		return
@@ -348,8 +354,15 @@ func (c *FeishuChannel) DismissToolFeedbackMessage(ctx context.Context, chatID s
 	if !ok {
 		return
 	}
+	c.dismissTrackedToolFeedbackMessage(ctx, chatID, msgID)
+}
+
+func (c *FeishuChannel) dismissTrackedToolFeedbackMessage(ctx context.Context, chatID, messageID string) {
+	if strings.TrimSpace(chatID) == "" || strings.TrimSpace(messageID) == "" {
+		return
+	}
 	c.ClearToolFeedbackMessage(chatID)
-	_ = c.DeleteMessage(ctx, chatID, msgID)
+	_ = c.DeleteMessage(ctx, chatID, messageID)
 }
 
 func (c *FeishuChannel) finalizeTrackedToolFeedbackMessage(
@@ -358,14 +371,14 @@ func (c *FeishuChannel) finalizeTrackedToolFeedbackMessage(
 	content string,
 	editFn func(context.Context, string, string, string) error,
 ) ([]string, bool) {
-	msgID, ok := c.currentToolFeedbackMessage(chatID)
+	msgID, baseContent, ok := c.takeToolFeedbackMessage(chatID)
 	if !ok || editFn == nil {
 		return nil, false
 	}
 	if err := editFn(ctx, chatID, msgID, content); err != nil {
+		c.RecordToolFeedbackMessage(chatID, msgID, baseContent)
 		return nil, false
 	}
-	c.ClearToolFeedbackMessage(chatID)
 	return []string{msgID}, true
 }
 
@@ -448,7 +461,7 @@ func (c *FeishuChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 	if !c.IsRunning() {
 		return nil, channels.ErrNotRunning
 	}
-	c.DismissToolFeedbackMessage(ctx, msg.ChatID)
+	trackedMsgID, hasTrackedMsg := c.currentToolFeedbackMessage(msg.ChatID)
 
 	if msg.ChatID == "" {
 		return nil, fmt.Errorf("chat ID is empty: %w", channels.ErrSendFailed)
@@ -463,6 +476,10 @@ func (c *FeishuChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMess
 		if err := c.sendMediaPart(ctx, msg.ChatID, part, store); err != nil {
 			return nil, err
 		}
+	}
+
+	if hasTrackedMsg {
+		c.dismissTrackedToolFeedbackMessage(ctx, msg.ChatID, trackedMsgID)
 	}
 
 	return nil, nil

@@ -691,6 +691,80 @@ func TestHandleGetSession_UsesConfiguredToolFeedbackMaxArgsLength(t *testing.T) 
 	}
 }
 
+func TestHandleGetSession_DoesNotExposeLegacyToolArgumentsWhenExplanationMissing(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.Agents.Defaults.ToolFeedback.MaxArgsLength = 20
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	argsJSON := `{"path":"README.md","start_line":1,"end_line":10,"extra":"abcdefghijklmnopqrstuvwxyz"}`
+	sessionKey := picoSessionPrefix + "detail-tool-summary-legacy-args"
+	if err := store.AddFullMessage(nil, sessionKey, providers.Message{Role: "user", Content: "check file"}); err != nil {
+		t.Fatalf("AddFullMessage(user) error = %v", err)
+	}
+	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
+		Role: "assistant",
+		ToolCalls: []providers.ToolCall{{
+			ID:   "call_1",
+			Type: "function",
+			Function: &providers.FunctionCall{
+				Name:      "read_file",
+				Arguments: argsJSON,
+			},
+		}},
+	}); err != nil {
+		t.Fatalf("AddFullMessage(assistant) error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/detail-tool-summary-legacy-args", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(resp.Messages) < 2 {
+		t.Fatalf("len(resp.Messages) = %d, want at least 2", len(resp.Messages))
+	}
+
+	if !strings.Contains(resp.Messages[1].Content, "`read_file`") {
+		t.Fatalf("tool summary = %q, want read_file summary", resp.Messages[1].Content)
+	}
+	if resp.Messages[1].Content != "🔧 `read_file`" {
+		t.Fatalf("tool summary = %q, want tool name only when explanation is missing", resp.Messages[1].Content)
+	}
+	if strings.Contains(resp.Messages[1].Content, argsJSON) {
+		t.Fatalf("tool summary = %q, should not expose legacy args", resp.Messages[1].Content)
+	}
+}
+
 func TestHandleGetSession_IncludesMediaOnlyMessages(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

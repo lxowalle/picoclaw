@@ -282,10 +282,8 @@ func TestSend_NonToolFeedbackDeletesTrackedProgressMessage(t *testing.T) {
 	caller := &stubCaller{
 		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
 			switch {
-			case strings.Contains(url, "deleteMessage"):
-				return successBoolResponse(t), nil
-			case strings.Contains(url, "sendMessage"):
-				return successResponseWithMessageID(t, 2), nil
+			case strings.Contains(url, "editMessageText"):
+				return successResponseWithMessageID(t, 1), nil
 			default:
 				t.Fatalf("unexpected API call: %s", url)
 				return nil, nil
@@ -301,12 +299,62 @@ func TestSend_NonToolFeedbackDeletesTrackedProgressMessage(t *testing.T) {
 	})
 
 	assert.NoError(t, err)
-	assert.Equal(t, []string{"2"}, ids)
-	require.Len(t, caller.calls, 2)
-	assert.Contains(t, caller.calls[0].URL, "deleteMessage")
-	assert.Contains(t, caller.calls[1].URL, "sendMessage")
+	assert.Equal(t, []string{"1"}, ids)
+	require.Len(t, caller.calls, 1)
+	assert.Contains(t, caller.calls[0].URL, "editMessageText")
 	_, ok := ch.currentToolFeedbackMessage("12345")
 	assert.False(t, ok, "tracked tool feedback should be cleared after final reply")
+}
+
+func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T) {
+	ch := newTestChannel(t, &stubCaller{
+		callFn: func(context.Context, string, *ta.RequestData) (*ta.Response, error) {
+			t.Fatal("unexpected API call")
+			return nil, nil
+		},
+	})
+	ch.RecordToolFeedbackMessage("12345", "1", "🔧 `read_file`")
+
+	msgIDs, handled := ch.finalizeTrackedToolFeedbackMessage(
+		context.Background(),
+		"12345",
+		"final reply",
+		func(_ context.Context, chatID, messageID, content string) error {
+			_, ok := ch.currentToolFeedbackMessage(chatID)
+			assert.False(t, ok, "tracked tool feedback should be stopped before edit")
+			assert.Equal(t, "12345", chatID)
+			assert.Equal(t, "1", messageID)
+			assert.Equal(t, "final reply", content)
+			return nil
+		},
+	)
+
+	assert.True(t, handled)
+	assert.Equal(t, []string{"1"}, msgIDs)
+}
+
+func TestSend_ToolFeedbackStaysSingleMessageAfterHTMLExpansion(t *testing.T) {
+	caller := &stubCaller{
+		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
+			return successResponse(t), nil
+		},
+	}
+	ch := newTestChannel(t, caller)
+
+	_, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "12345",
+		Content: "🔧 `read_file`\n" + strings.Repeat("<", 2000),
+		Context: bus.InboundContext{
+			Channel: "telegram",
+			ChatID:  "12345",
+			Raw: map[string]string{
+				"message_kind": "tool_feedback",
+			},
+		},
+	})
+
+	assert.NoError(t, err)
+	assert.Len(t, caller.calls, 1, "tool feedback should stay a single Telegram message after HTML escaping")
 }
 
 func TestSend_LongMessage_SingleCall(t *testing.T) {

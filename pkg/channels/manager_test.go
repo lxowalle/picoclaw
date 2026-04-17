@@ -13,6 +13,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
+	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -98,6 +99,33 @@ func (m *mockDeletingMediaChannel) DeleteMessage(
 
 func (m *mockDeletingMediaChannel) DismissToolFeedbackMessage(_ context.Context, chatID string) {
 	m.dismissedChatID = chatID
+}
+
+type mockStreamer struct {
+	finalizeFn func(context.Context, string) error
+}
+
+func (m *mockStreamer) Update(context.Context, string) error { return nil }
+
+func (m *mockStreamer) Finalize(ctx context.Context, content string) error {
+	if m.finalizeFn != nil {
+		return m.finalizeFn(ctx, content)
+	}
+	return nil
+}
+
+func (m *mockStreamer) Cancel(context.Context) {}
+
+type mockStreamingChannel struct {
+	mockMessageEditor
+	streamer Streamer
+}
+
+func (m *mockStreamingChannel) BeginStream(context.Context, string) (Streamer, error) {
+	if m.streamer == nil {
+		return nil, errors.New("missing streamer")
+	}
+	return m.streamer, nil
 }
 
 // newTestManager creates a minimal Manager suitable for unit tests.
@@ -835,7 +863,7 @@ func TestPreSend_ToolFeedbackPlaceholderEditRecordsTrackedMessage(t *testing.T) 
 	}
 }
 
-func TestPreSend_NonToolFeedbackDismissesTrackedMessage(t *testing.T) {
+func TestPreSend_NonToolFeedbackLeavesTrackedMessageForChannelSend(t *testing.T) {
 	m := newTestManager()
 	ch := &mockMessageEditor{}
 
@@ -853,8 +881,8 @@ func TestPreSend_NonToolFeedbackDismissesTrackedMessage(t *testing.T) {
 	if edited {
 		t.Fatal("expected preSend to fall through when no placeholder exists")
 	}
-	if ch.dismissedChatID != "123" {
-		t.Fatalf("expected tracked tool feedback to be dismissed for chat 123, got %q", ch.dismissedChatID)
+	if ch.dismissedChatID != "" {
+		t.Fatalf("expected tracked tool feedback cleanup to be deferred to channel send, got %q", ch.dismissedChatID)
 	}
 }
 
@@ -891,7 +919,7 @@ func TestPreSend_NonToolFeedbackFinalizerHandlesMessage(t *testing.T) {
 	}
 }
 
-func TestPreSendMedia_DismissesTrackedMessage(t *testing.T) {
+func TestPreSendMedia_LeavesTrackedMessageForChannelSend(t *testing.T) {
 	m := newTestManager()
 	ch := &mockDeletingMediaChannel{}
 
@@ -903,8 +931,8 @@ func TestPreSendMedia_DismissesTrackedMessage(t *testing.T) {
 		},
 	}, ch)
 
-	if ch.dismissedChatID != "123" {
-		t.Fatalf("expected tracked tool feedback to be dismissed for media chat 123, got %q", ch.dismissedChatID)
+	if ch.dismissedChatID != "" {
+		t.Fatalf("expected tracked tool feedback cleanup to be deferred to channel media send, got %q", ch.dismissedChatID)
 	}
 }
 
@@ -929,6 +957,126 @@ func TestSplitOutboundMessageContent_ToolFeedbackTruncatesInsteadOfSplitting(t *
 	want := utils.FitToolFeedbackMessage(msg.Content, 40)
 	if chunks[0] != want {
 		t.Fatalf("chunk = %q, want %q", chunks[0], want)
+	}
+}
+
+func TestGetStreamer_FinalizeDismissesTrackedToolFeedback(t *testing.T) {
+	m := newTestManager()
+	ch := &mockStreamingChannel{
+		mockMessageEditor: mockMessageEditor{},
+		streamer: &mockStreamer{
+			finalizeFn: func(_ context.Context, content string) error {
+				if content != "final reply" {
+					t.Fatalf("unexpected finalize content: %q", content)
+				}
+				return nil
+			},
+		},
+	}
+	m.channels["test"] = ch
+
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123")
+	if !ok {
+		t.Fatal("expected streamer to be available")
+	}
+	if err := streamer.Finalize(context.Background(), "final reply"); err != nil {
+		t.Fatalf("Finalize() error = %v", err)
+	}
+	if ch.dismissedChatID != "123" {
+		t.Fatalf("expected tracked tool feedback to be dismissed for chat 123, got %q", ch.dismissedChatID)
+	}
+	if _, ok := m.streamActive.Load("test:123"); !ok {
+		t.Fatal("expected streamActive marker to be recorded after finalize")
+	}
+}
+
+func TestGetStreamer_FinalizeFailureDoesNotDismissTrackedToolFeedback(t *testing.T) {
+	m := newTestManager()
+	ch := &mockStreamingChannel{
+		mockMessageEditor: mockMessageEditor{},
+		streamer: &mockStreamer{
+			finalizeFn: func(context.Context, string) error {
+				return errors.New("finalize failed")
+			},
+		},
+	}
+	m.channels["test"] = ch
+
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123")
+	if !ok {
+		t.Fatal("expected streamer to be available")
+	}
+	if err := streamer.Finalize(context.Background(), "final reply"); err == nil {
+		t.Fatal("expected Finalize() to fail")
+	}
+	if ch.dismissedChatID != "" {
+		t.Fatalf("expected no tool feedback dismissal on finalize failure, got %q", ch.dismissedChatID)
+	}
+	if _, ok := m.streamActive.Load("test:123"); ok {
+		t.Fatal("expected no streamActive marker after finalize failure")
+	}
+}
+
+func TestRunWorker_ToolFeedbackSkipsMarkerSplitting(t *testing.T) {
+	m := newTestManager()
+	m.config = &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				SplitOnMarker: true,
+			},
+		},
+	}
+
+	var (
+		mu       sync.Mutex
+		received []string
+	)
+	ch := &mockChannelWithLength{
+		mockChannel: mockChannel{
+			sendFn: func(_ context.Context, msg bus.OutboundMessage) error {
+				mu.Lock()
+				received = append(received, msg.Content)
+				mu.Unlock()
+				return nil
+			},
+		},
+		maxLen: 200,
+	}
+
+	w := &channelWorker{
+		ch:      ch,
+		queue:   make(chan bus.OutboundMessage, 1),
+		done:    make(chan struct{}),
+		limiter: rate.NewLimiter(rate.Inf, 1),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.runWorker(ctx, "test", w)
+
+	content := "🔧 `read_file`\nRead current config first.<|[SPLIT]|>Then update the example."
+	w.queue <- testOutboundMessage(bus.OutboundMessage{
+		Channel: "test",
+		ChatID:  "123",
+		Content: content,
+		Context: bus.InboundContext{
+			Channel: "test",
+			ChatID:  "123",
+			Raw: map[string]string{
+				"message_kind": "tool_feedback",
+			},
+		},
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 1 {
+		t.Fatalf("len(received) = %d, want 1", len(received))
+	}
+	if received[0] != content {
+		t.Fatalf("received[0] = %q, want %q", received[0], content)
 	}
 }
 

@@ -82,14 +82,20 @@ func (a *ToolFeedbackAnimator) Clear(chatID string) {
 	if a == nil || strings.TrimSpace(chatID) == "" {
 		return
 	}
-	var entry *toolFeedbackAnimationState
-	a.mu.Lock()
-	if old, ok := a.entries[chatID]; ok {
-		entry = old
-		delete(a.entries, chatID)
-	}
-	a.mu.Unlock()
+	entry := a.detach(chatID)
 	stopToolFeedbackAnimation(entry)
+}
+
+func (a *ToolFeedbackAnimator) Take(chatID string) (string, string, bool) {
+	if a == nil || strings.TrimSpace(chatID) == "" {
+		return "", "", false
+	}
+	entry := a.detach(chatID)
+	if entry == nil || strings.TrimSpace(entry.messageID) == "" {
+		return "", "", false
+	}
+	stopToolFeedbackAnimation(entry)
+	return entry.messageID, entry.baseContent, true
 }
 
 func (a *ToolFeedbackAnimator) StopAll() {
@@ -107,6 +113,17 @@ func (a *ToolFeedbackAnimator) StopAll() {
 	for _, entry := range entries {
 		stopToolFeedbackAnimation(entry)
 	}
+}
+
+func (a *ToolFeedbackAnimator) detach(chatID string) *toolFeedbackAnimationState {
+	if a == nil || strings.TrimSpace(chatID) == "" {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	entry := a.entries[chatID]
+	delete(a.entries, chatID)
+	return entry
 }
 
 func (a *ToolFeedbackAnimator) run(chatID string, entry *toolFeedbackAnimationState) {

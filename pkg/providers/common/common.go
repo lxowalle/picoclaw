@@ -70,11 +70,23 @@ func NewHTTPClient(proxy string) *http.Client {
 // It mirrors protocoltypes.Message but omits SystemParts, which is an
 // internal field that would be unknown to third-party endpoints.
 type openaiMessage struct {
-	Role             string     `json:"role"`
-	Content          string     `json:"content"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	Role             string           `json:"role"`
+	Content          string           `json:"content"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	ToolCalls        []openaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string           `json:"tool_call_id,omitempty"`
+}
+
+type openaiToolCall struct {
+	ID       string              `json:"id"`
+	Type     string              `json:"type,omitempty"`
+	Function *openaiFunctionCall `json:"function,omitempty"`
+}
+
+type openaiFunctionCall struct {
+	Name             string `json:"name"`
+	Arguments        string `json:"arguments"`
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 // SerializeMessages converts internal Message structs to the OpenAI wire format.
@@ -84,12 +96,13 @@ type openaiMessage struct {
 func SerializeMessages(messages []Message) []any {
 	out := make([]any, 0, len(messages))
 	for _, m := range messages {
+		toolCalls := serializeToolCalls(m.ToolCalls)
 		if len(m.Media) == 0 {
 			out = append(out, openaiMessage{
 				Role:             m.Role,
 				Content:          m.Content,
 				ReasoningContent: m.ReasoningContent,
-				ToolCalls:        m.ToolCalls,
+				ToolCalls:        toolCalls,
 				ToolCallID:       m.ToolCallID,
 			})
 			continue
@@ -132,14 +145,52 @@ func SerializeMessages(messages []Message) []any {
 		if m.ToolCallID != "" {
 			msg["tool_call_id"] = m.ToolCallID
 		}
-		if len(m.ToolCalls) > 0 {
-			msg["tool_calls"] = m.ToolCalls
+		if len(toolCalls) > 0 {
+			msg["tool_calls"] = toolCalls
 		}
 		if m.ReasoningContent != "" {
 			msg["reasoning_content"] = m.ReasoningContent
 		}
 		out = append(out, msg)
 	}
+	return out
+}
+
+func serializeToolCalls(toolCalls []ToolCall) []openaiToolCall {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+
+	out := make([]openaiToolCall, 0, len(toolCalls))
+	for _, tc := range toolCalls {
+		wireCall := openaiToolCall{
+			ID:   tc.ID,
+			Type: tc.Type,
+		}
+
+		if tc.Function != nil {
+			wireCall.Function = &openaiFunctionCall{
+				Name:             tc.Function.Name,
+				Arguments:        tc.Function.Arguments,
+				ThoughtSignature: tc.Function.ThoughtSignature,
+			}
+		} else if tc.Name != "" || len(tc.Arguments) > 0 || tc.ThoughtSignature != "" {
+			argsJSON := "{}"
+			if len(tc.Arguments) > 0 {
+				if encoded, err := json.Marshal(tc.Arguments); err == nil {
+					argsJSON = string(encoded)
+				}
+			}
+			wireCall.Function = &openaiFunctionCall{
+				Name:             tc.Name,
+				Arguments:        argsJSON,
+				ThoughtSignature: tc.ThoughtSignature,
+			}
+		}
+
+		out = append(out, wireCall)
+	}
+
 	return out
 }
 
@@ -185,6 +236,7 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 						Google *struct {
 							ThoughtSignature string `json:"thought_signature"`
 						} `json:"google"`
+						ToolFeedbackExplanation string `json:"tool_feedback_explanation"`
 					} `json:"extra_content"`
 				} `json:"tool_calls"`
 			} `json:"message"`
@@ -228,11 +280,17 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 			ThoughtSignature: thoughtSignature,
 		}
 
-		if thoughtSignature != "" {
-			toolCall.ExtraContent = &ExtraContent{
-				Google: &GoogleExtra{
+		if tc.ExtraContent != nil {
+			extraContent := &ExtraContent{
+				ToolFeedbackExplanation: tc.ExtraContent.ToolFeedbackExplanation,
+			}
+			if thoughtSignature != "" {
+				extraContent.Google = &GoogleExtra{
 					ThoughtSignature: thoughtSignature,
-				},
+				}
+			}
+			if extraContent.Google != nil || strings.TrimSpace(extraContent.ToolFeedbackExplanation) != "" {
+				toolCall.ExtraContent = extraContent
 			}
 		}
 

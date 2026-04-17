@@ -42,3 +42,22 @@ func TestToolFeedbackAnimator_RecordCurrentAndClear(t *testing.T) {
 		t.Fatalf("Current() after Clear = (%q, %v), want (\"\", false)", msgID, ok)
 	}
 }
+
+func TestToolFeedbackAnimator_TakeStopsTrackingAndReturnsState(t *testing.T) {
+	animator := NewToolFeedbackAnimator(nil)
+	animator.Record("chat-1", "msg-1", "🔧 `read_file`\nChecking config")
+
+	msgID, baseContent, ok := animator.Take("chat-1")
+	if !ok {
+		t.Fatal("Take() = not found, want tracked message")
+	}
+	if msgID != "msg-1" {
+		t.Fatalf("Take() msgID = %q, want msg-1", msgID)
+	}
+	if baseContent != "🔧 `read_file`\nChecking config" {
+		t.Fatalf("Take() baseContent = %q", baseContent)
+	}
+	if _, ok := animator.Current("chat-1"); ok {
+		t.Fatal("expected tracked message to be removed after Take()")
+	}
+}
