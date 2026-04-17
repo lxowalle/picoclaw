@@ -932,7 +932,10 @@ func TestPreSendMedia_LeavesTrackedMessageForChannelSend(t *testing.T) {
 	}, ch)
 
 	if ch.dismissedChatID != "" {
-		t.Fatalf("expected tracked tool feedback cleanup to be deferred to channel media send, got %q", ch.dismissedChatID)
+		t.Fatalf(
+			"expected tracked tool feedback cleanup to be deferred to channel media send, got %q",
+			ch.dismissedChatID,
+		)
 	}
 }
 

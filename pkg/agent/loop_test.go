@@ -1794,43 +1794,6 @@ func (m *toolFeedbackReasoningProvider) GetDefaultModel() string {
 	return "tool-feedback-reasoning-model"
 }
 
-type toolFeedbackExtraContentProvider struct {
-	filePath string
-	calls    int
-}
-
-func (m *toolFeedbackExtraContentProvider) Chat(
-	ctx context.Context,
-	messages []providers.Message,
-	tools []providers.ToolDefinition,
-	model string,
-	opts map[string]any,
-) (*providers.LLMResponse, error) {
-	m.calls++
-	if m.calls == 1 {
-		return &providers.LLMResponse{
-			ToolCalls: []providers.ToolCall{{
-				ID:        "call_explicit_read_file",
-				Type:      "function",
-				Name:      "read_file",
-				Arguments: map[string]any{"path": m.filePath},
-				ExtraContent: &providers.ExtraContent{
-					ToolFeedbackExplanation: "Read README.md first to confirm the current project structure.",
-				},
-			}},
-		}, nil
-	}
-
-	return &providers.LLMResponse{
-		Content:   "DONE",
-		ToolCalls: []providers.ToolCall{},
-	}, nil
-}
-
-func (m *toolFeedbackExtraContentProvider) GetDefaultModel() string {
-	return "tool-feedback-extra-content-model"
-}
-
 func TestToolFeedbackExplanationFromResponse_UsesCurrentContentFirst(t *testing.T) {
 	response := &providers.LLMResponse{
 		Content:          "Read README.md first",
@@ -3934,8 +3897,14 @@ func TestProcessMessage_DoesNotLeakReasoningContentInToolFeedback(t *testing.T) 
 }
 
 func TestProcessMessage_DoesNotPublishToolFeedbackForDiscordWhenDisabled(t *testing.T) {
+	assertToolFeedbackNotPublishedWhenDisabled(t, "discord")
+}
+
+func assertToolFeedbackNotPublishedWhenDisabled(t *testing.T, channel string) {
+	t.Helper()
+
 	tmpDir := t.TempDir()
-	heartbeatFile := filepath.Join(tmpDir, "tool-feedback-discord.txt")
+	heartbeatFile := filepath.Join(tmpDir, "tool-feedback-"+channel+".txt")
 	if err := os.WriteFile(heartbeatFile, []byte("tool feedback task"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -3961,7 +3930,7 @@ func TestProcessMessage_DoesNotPublishToolFeedbackForDiscordWhenDisabled(t *test
 	al := NewAgentLoop(cfg, msgBus, provider)
 
 	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
-		Channel:  "discord",
+		Channel:  channel,
 		SenderID: "user-1",
 		ChatID:   "chat-1",
 		Content:  "check tool feedback",
@@ -3975,103 +3944,17 @@ func TestProcessMessage_DoesNotPublishToolFeedbackForDiscordWhenDisabled(t *test
 
 	select {
 	case outbound := <-msgBus.OutboundChan():
-		t.Fatalf("expected no outbound tool feedback for discord when disabled, got %+v", outbound)
+		t.Fatalf("expected no outbound tool feedback for %s when disabled, got %+v", channel, outbound)
 	case <-time.After(200 * time.Millisecond):
 	}
 }
 
 func TestProcessMessage_DoesNotPublishToolFeedbackForTelegramWhenDisabled(t *testing.T) {
-	tmpDir := t.TempDir()
-	heartbeatFile := filepath.Join(tmpDir, "tool-feedback-telegram-default.txt")
-	if err := os.WriteFile(heartbeatFile, []byte("tool feedback task"), 0o644); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-
-	cfg := &config.Config{
-		Agents: config.AgentsConfig{
-			Defaults: config.AgentDefaults{
-				Workspace:         tmpDir,
-				ModelName:         "test-model",
-				MaxTokens:         4096,
-				MaxToolIterations: 10,
-			},
-		},
-		Tools: config.ToolsConfig{
-			ReadFile: config.ReadFileToolConfig{
-				Enabled: true,
-			},
-		},
-	}
-
-	msgBus := bus.NewMessageBus()
-	provider := &toolFeedbackProvider{filePath: heartbeatFile}
-	al := NewAgentLoop(cfg, msgBus, provider)
-
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
-		Channel:  "telegram",
-		SenderID: "user-1",
-		ChatID:   "chat-1",
-		Content:  "check tool feedback",
-	}))
-	if err != nil {
-		t.Fatalf("processMessage() error = %v", err)
-	}
-	if response != "HEARTBEAT_OK" {
-		t.Fatalf("processMessage() response = %q, want %q", response, "HEARTBEAT_OK")
-	}
-
-	select {
-	case outbound := <-msgBus.OutboundChan():
-		t.Fatalf("expected no outbound tool feedback for telegram when disabled, got %+v", outbound)
-	case <-time.After(200 * time.Millisecond):
-	}
+	assertToolFeedbackNotPublishedWhenDisabled(t, "telegram")
 }
 
 func TestProcessMessage_DoesNotPublishToolFeedbackForFeishuWhenDisabled(t *testing.T) {
-	tmpDir := t.TempDir()
-	heartbeatFile := filepath.Join(tmpDir, "tool-feedback-feishu-default.txt")
-	if err := os.WriteFile(heartbeatFile, []byte("tool feedback task"), 0o644); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-
-	cfg := &config.Config{
-		Agents: config.AgentsConfig{
-			Defaults: config.AgentDefaults{
-				Workspace:         tmpDir,
-				ModelName:         "test-model",
-				MaxTokens:         4096,
-				MaxToolIterations: 10,
-			},
-		},
-		Tools: config.ToolsConfig{
-			ReadFile: config.ReadFileToolConfig{
-				Enabled: true,
-			},
-		},
-	}
-
-	msgBus := bus.NewMessageBus()
-	provider := &toolFeedbackProvider{filePath: heartbeatFile}
-	al := NewAgentLoop(cfg, msgBus, provider)
-
-	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
-		Channel:  "feishu",
-		SenderID: "user-1",
-		ChatID:   "chat-1",
-		Content:  "check tool feedback",
-	}))
-	if err != nil {
-		t.Fatalf("processMessage() error = %v", err)
-	}
-	if response != "HEARTBEAT_OK" {
-		t.Fatalf("processMessage() response = %q, want %q", response, "HEARTBEAT_OK")
-	}
-
-	select {
-	case outbound := <-msgBus.OutboundChan():
-		t.Fatalf("expected no outbound tool feedback for feishu when disabled, got %+v", outbound)
-	case <-time.After(200 * time.Millisecond):
-	}
+	assertToolFeedbackNotPublishedWhenDisabled(t, "feishu")
 }
 
 func TestProcessMessage_MessageToolPublishesOutboundWithTurnMetadata(t *testing.T) {

@@ -109,13 +109,6 @@ func successResponseWithMessageID(t *testing.T, messageID int) *ta.Response {
 	return &ta.Response{Ok: true, Result: b}
 }
 
-func successBoolResponse(t *testing.T) *ta.Response {
-	t.Helper()
-	b, err := json.Marshal(true)
-	require.NoError(t, err)
-	return &ta.Response{Ok: true, Result: b}
-}
-
 func successUserResponse(t *testing.T, user *telego.User) *ta.Response {
 	t.Helper()
 	b, err := json.Marshal(user)

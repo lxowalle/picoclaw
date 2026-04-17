@@ -700,7 +700,8 @@ func TestHandleGetSession_DoesNotExposeLegacyToolArgumentsWhenExplanationMissing
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
 	cfg.Agents.Defaults.ToolFeedback.MaxArgsLength = 20
-	if err := config.SaveConfig(configPath, cfg); err != nil {
+	err = config.SaveConfig(configPath, cfg)
+	if err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
 	}
 
@@ -712,7 +713,11 @@ func TestHandleGetSession_DoesNotExposeLegacyToolArgumentsWhenExplanationMissing
 
 	argsJSON := `{"path":"README.md","start_line":1,"end_line":10,"extra":"abcdefghijklmnopqrstuvwxyz"}`
 	sessionKey := picoSessionPrefix + "detail-tool-summary-legacy-args"
-	if err := store.AddFullMessage(nil, sessionKey, providers.Message{Role: "user", Content: "check file"}); err != nil {
+	if err := store.AddFullMessage(
+		nil,
+		sessionKey,
+		providers.Message{Role: "user", Content: "check file"},
+	); err != nil {
 		t.Fatalf("AddFullMessage(user) error = %v", err)
 	}
 	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
