@@ -46,9 +46,17 @@ type sessionListItem struct {
 }
 
 type sessionChatMessage struct {
-	Role    string   `json:"role"`
-	Content string   `json:"content"`
-	Media   []string `json:"media,omitempty"`
+	Role        string                  `json:"role"`
+	Content     string                  `json:"content"`
+	Media       []string                `json:"media,omitempty"`
+	Attachments []sessionChatAttachment `json:"attachments,omitempty"`
+}
+
+type sessionChatAttachment struct {
+	Type        string `json:"type,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Filename    string `json:"filename,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
 }
 
 // legacyPicoSessionPrefix is the legacy key prefix used by older Pico JSON/JSONL
@@ -398,10 +406,12 @@ func (h *Handler) findLegacyPicoSession(dir, sessionID string) (picoLegacySessio
 }
 
 func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArgsLength int) sessionListItem {
+	transcript := visibleSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
+
 	preview := ""
-	for _, msg := range sess.Messages {
+	for _, msg := range transcript {
 		if msg.Role == "user" {
-			preview = sessionMessagePreview(msg)
+			preview = sessionChatMessagePreview(msg)
 		}
 		if preview != "" {
 			break
@@ -414,13 +424,11 @@ func buildSessionListItem(sessionID string, sess sessionFile, toolFeedbackMaxArg
 	}
 	title := preview
 
-	validMessageCount := len(visibleSessionMessages(sess.Messages, toolFeedbackMaxArgsLength))
-
 	return sessionListItem{
 		ID:           sessionID,
 		Title:        title,
 		Preview:      preview,
-		MessageCount: validMessageCount,
+		MessageCount: len(transcript),
 		Created:      sess.Created.Format(time.RFC3339),
 		Updated:      sess.Updated.Format(time.RFC3339),
 	}
@@ -441,16 +449,25 @@ func truncateRunes(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "..."
 }
 
-func sessionMessageVisible(msg providers.Message) bool {
-	return strings.TrimSpace(msg.Content) != "" || len(msg.Media) > 0
+func sessionChatMessageVisible(msg sessionChatMessage) bool {
+	return strings.TrimSpace(msg.Content) != "" || len(msg.Media) > 0 || len(msg.Attachments) > 0
 }
 
-func sessionMessagePreview(msg providers.Message) string {
+func sessionChatMessagePreview(msg sessionChatMessage) string {
 	if content := strings.TrimSpace(msg.Content); content != "" {
 		return content
 	}
+	if len(msg.Attachments) > 0 {
+		if strings.EqualFold(strings.TrimSpace(msg.Attachments[0].Type), "image") {
+			return "[image]"
+		}
+		return "[attachment]"
+	}
 	if len(msg.Media) > 0 {
-		return "[image]"
+		if strings.HasPrefix(strings.TrimSpace(msg.Media[0]), "data:image/") {
+			return "[image]"
+		}
+		return "[attachment]"
 	}
 	return ""
 }
@@ -459,17 +476,21 @@ func visibleSessionMessages(messages []providers.Message, toolFeedbackMaxArgsLen
 	transcript := make([]sessionChatMessage, 0, len(messages))
 
 	for _, msg := range messages {
+		attachments := sessionAttachments(msg)
+
 		switch msg.Role {
 		case "tool":
 			continue
 
 		case "user":
-			if sessionMessageVisible(msg) {
-				transcript = append(transcript, sessionChatMessage{
-					Role:    "user",
-					Content: msg.Content,
-					Media:   append([]string(nil), msg.Media...),
-				})
+			chatMsg := sessionChatMessage{
+				Role:        "user",
+				Content:     msg.Content,
+				Media:       append([]string(nil), msg.Media...),
+				Attachments: attachments,
+			}
+			if sessionChatMessageVisible(chatMsg) {
+				transcript = append(transcript, chatMsg)
 			}
 
 		case "assistant":
@@ -501,15 +522,25 @@ func visibleSessionMessages(messages []providers.Message, toolFeedbackMaxArgsLen
 			// Pico web chat can persist both visible `message` tool output and a
 			// later plain assistant reply in the same turn. Hide only the fixed
 			// internal summary that marks handled tool delivery.
-			if !sessionMessageVisible(msg) || assistantMessageInternalOnly(msg) {
+			content := msg.Content
+			if assistantMessageInternalOnly(msg) {
+				if len(attachments) == 0 {
+					continue
+				}
+				content = ""
+			}
+
+			chatMsg := sessionChatMessage{
+				Role:        "assistant",
+				Content:     content,
+				Media:       append([]string(nil), msg.Media...),
+				Attachments: attachments,
+			}
+			if !sessionChatMessageVisible(chatMsg) {
 				continue
 			}
 
-			transcript = append(transcript, sessionChatMessage{
-				Role:    "assistant",
-				Content: msg.Content,
-				Media:   append([]string(nil), msg.Media...),
-			})
+			transcript = append(transcript, chatMsg)
 		}
 	}
 
@@ -564,11 +595,88 @@ func toolSummaryContainsContent(summary, content string) bool {
 	return hasBody && strings.TrimSpace(body) == content
 }
 
+func sessionAttachments(msg providers.Message) []sessionChatAttachment {
+	if len(msg.Attachments) == 0 {
+		return nil
+	}
+
+	attachments := make([]sessionChatAttachment, 0, len(msg.Attachments))
+	for _, attachment := range msg.Attachments {
+		urlValue, ok := sessionAttachmentURL(attachment)
+		if !ok {
+			continue
+		}
+		attachmentType := strings.TrimSpace(attachment.Type)
+		if attachmentType == "" {
+			attachmentType = sessionAttachmentType(attachment)
+		}
+		attachments = append(attachments, sessionChatAttachment{
+			Type:        attachmentType,
+			URL:         urlValue,
+			Filename:    strings.TrimSpace(attachment.Filename),
+			ContentType: strings.TrimSpace(attachment.ContentType),
+		})
+	}
+
+	if len(attachments) == 0 {
+		return nil
+	}
+	return attachments
+}
+
+func sessionAttachmentURL(attachment providers.Attachment) (string, bool) {
+	if rawURL := strings.TrimSpace(attachment.URL); rawURL != "" {
+		return rawURL, true
+	}
+
+	ref := strings.TrimSpace(attachment.Ref)
+	if ref == "" {
+		return "", false
+	}
+	if strings.HasPrefix(ref, "media://") {
+		// Persisted session history must only expose durable attachment locations.
+		// media:// refs depend on the live in-memory MediaStore and may stop
+		// resolving after a restart or cleanup, so omit them from reopened history.
+		return "", false
+	}
+	return ref, true
+}
+
+func sessionAttachmentType(attachment providers.Attachment) string {
+	contentType := strings.ToLower(strings.TrimSpace(attachment.ContentType))
+	filename := strings.ToLower(strings.TrimSpace(attachment.Filename))
+	rawRef := strings.ToLower(strings.TrimSpace(attachment.Ref))
+	rawURL := strings.ToLower(strings.TrimSpace(attachment.URL))
+
+	switch {
+	case strings.HasPrefix(contentType, "image/"),
+		strings.HasPrefix(rawRef, "data:image/"),
+		strings.HasPrefix(rawURL, "data:image/"):
+		return "image"
+	case strings.HasPrefix(contentType, "audio/"):
+		return "audio"
+	case strings.HasPrefix(contentType, "video/"):
+		return "video"
+	}
+
+	switch ext := filepath.Ext(filename); ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg":
+		return "image"
+	case ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma", ".opus":
+		return "audio"
+	case ".mp4", ".avi", ".mov", ".webm", ".mkv":
+		return "video"
+	default:
+		return "file"
+	}
+}
+
 func assistantMessageTransientThought(msg providers.Message) bool {
 	return strings.TrimSpace(msg.Content) == "" &&
 		strings.TrimSpace(msg.ReasoningContent) != "" &&
 		len(msg.ToolCalls) == 0 &&
-		len(msg.Media) == 0
+		len(msg.Media) == 0 &&
+		len(msg.Attachments) == 0
 }
 
 func assistantMessageInternalOnly(msg providers.Message) bool {

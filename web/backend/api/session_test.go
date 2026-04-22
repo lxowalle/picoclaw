@@ -218,6 +218,136 @@ func TestHandleGetSession_JSONLStorage(t *testing.T) {
 	}
 }
 
+func TestHandleGetSession_HidesHandledToolAttachmentsBackedByMediaRefs(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	sessionKey := legacyPicoSessionPrefix + "attachment-history"
+	for _, msg := range []providers.Message{
+		{Role: "user", Content: "send me the report"},
+		{
+			Role:    "assistant",
+			Content: handledToolResponseSummaryText,
+			Attachments: []providers.Attachment{{
+				Type:        "file",
+				Ref:         "media://attachment-1",
+				Filename:    "report.txt",
+				ContentType: "text/plain",
+			}},
+		},
+	} {
+		if err := store.AddFullMessage(nil, sessionKey, msg); err != nil {
+			t.Fatalf("AddFullMessage() error = %v", err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/attachment-history", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []sessionChatMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(resp.Messages) = %d, want 1", len(resp.Messages))
+	}
+	if resp.Messages[0].Role != "user" || resp.Messages[0].Content != "send me the report" {
+		t.Fatalf("message = %#v, want only user request", resp.Messages[0])
+	}
+}
+
+func TestHandleGetSession_ExposesHandledToolAttachmentsWithDurableURL(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	sessionKey := legacyPicoSessionPrefix + "attachment-history-durable"
+	for _, msg := range []providers.Message{
+		{Role: "user", Content: "send me the report"},
+		{
+			Role:    "assistant",
+			Content: handledToolResponseSummaryText,
+			Attachments: []providers.Attachment{{
+				Type:        "file",
+				URL:         "https://example.com/report.txt",
+				Filename:    "report.txt",
+				ContentType: "text/plain",
+			}},
+		},
+	} {
+		if err := store.AddFullMessage(nil, sessionKey, msg); err != nil {
+			t.Fatalf("AddFullMessage() error = %v", err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/attachment-history-durable", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []sessionChatMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	if len(resp.Messages) != 2 {
+		t.Fatalf("len(resp.Messages) = %d, want 2", len(resp.Messages))
+	}
+
+	assistant := resp.Messages[1]
+	if assistant.Role != "assistant" {
+		t.Fatalf("assistant role = %q, want assistant", assistant.Role)
+	}
+	if assistant.Content != "" {
+		t.Fatalf("assistant content = %q, want empty string", assistant.Content)
+	}
+	if len(assistant.Attachments) != 1 {
+		t.Fatalf("len(assistant.Attachments) = %d, want 1", len(assistant.Attachments))
+	}
+	if assistant.Attachments[0].URL != "https://example.com/report.txt" {
+		t.Fatalf(
+			"attachment url = %q, want %q",
+			assistant.Attachments[0].URL,
+			"https://example.com/report.txt",
+		)
+	}
+	if assistant.Attachments[0].Filename != "report.txt" {
+		t.Fatalf("attachment filename = %q, want %q", assistant.Attachments[0].Filename, "report.txt")
+	}
+}
+
 func TestHandleSessions_JSONLScopeDiscovery(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

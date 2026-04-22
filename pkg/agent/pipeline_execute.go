@@ -33,6 +33,7 @@ func (p *Pipeline) ExecuteTools(
 
 	ts.setPhase(TurnPhaseTools)
 	messages := exec.messages
+	handledAttachments := make([]providers.Attachment, 0)
 
 toolLoop:
 	for i, tc := range normalizedToolCalls {
@@ -139,6 +140,11 @@ toolLoop:
 									})
 								hookResult.IsError = true
 								hookResult.ForLLM = fmt.Sprintf("failed to deliver attachment: %v", err)
+							} else {
+								handledAttachments = append(
+									handledAttachments,
+									buildProviderAttachments(al.mediaStore, hookResult.Media)...,
+								)
 							}
 						} else if al.bus != nil {
 							al.bus.PublishOutboundMedia(ctx, outboundMedia)
@@ -498,6 +504,11 @@ toolLoop:
 							"error":    err.Error(),
 						})
 					toolResult = tools.ErrorResult(fmt.Sprintf("failed to deliver attachment: %v", err)).WithError(err)
+				} else {
+					handledAttachments = append(
+						handledAttachments,
+						buildProviderAttachments(al.mediaStore, toolResult.Media)...,
+					)
 				}
 			} else if al.bus != nil {
 				al.bus.PublishOutboundMedia(ctx, outboundMedia)
@@ -651,11 +662,12 @@ toolLoop:
 	// No pending steering: finalize or break depending on allResponsesHandled
 	if exec.allResponsesHandled {
 		summaryMsg := providers.Message{
-			Role:    "assistant",
-			Content: handledToolResponseSummary,
+			Role:        "assistant",
+			Content:     handledToolResponseSummary,
+			Attachments: append([]providers.Attachment(nil), handledAttachments...),
 		}
 		if !ts.opts.NoHistory {
-			ts.agent.Sessions.AddMessage(ts.sessionKey, summaryMsg.Role, summaryMsg.Content)
+			ts.agent.Sessions.AddFullMessage(ts.sessionKey, summaryMsg)
 			ts.recordPersistedMessage(summaryMsg)
 			ts.ingestMessage(turnCtx, al, summaryMsg)
 			if err := ts.agent.Sessions.Save(ts.sessionKey); err != nil {

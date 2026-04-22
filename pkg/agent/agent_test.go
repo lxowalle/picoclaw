@@ -129,7 +129,7 @@ func useTestSideQuestionProvider(al *AgentLoop, provider providers.LLMProvider) 
 	al.providerFactory = func(mc *config.ModelConfig) (providers.LLMProvider, string, error) {
 		model := provider.GetDefaultModel()
 		if mc != nil {
-			if _, modelID := providers.ExtractProtocol(mc.Model); modelID != "" {
+			if _, modelID := providers.ExtractProtocol(mc); modelID != "" {
 				model = modelID
 			}
 		}
@@ -1051,6 +1051,9 @@ func TestProcessMessage_MediaToolHandledSkipsFollowUpLLMAndFinalText(t *testing.
 	last := history[len(history)-1]
 	if last.Role != "assistant" || last.Content != "Requested output delivered via tool attachment." {
 		t.Fatalf("expected handled assistant summary in history, got %+v", last)
+	}
+	if len(last.Attachments) != 1 {
+		t.Fatalf("expected handled assistant summary attachments in history, got %+v", last.Attachments)
 	}
 }
 
