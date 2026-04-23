@@ -555,16 +555,15 @@
           "providers_config": "集成",
           "load_error": "加载 Web Search 配置失败。",
           "save": "保存更改",
+          "open_settings": "打开设置",
           "save_success": "设置保存成功。",
           "save_error": "保存设置失败。",
-          "current_active": "活动: ",
-          "current_service": "当前服务",
           "provider": "首选服务",
-          "provider_description": "选择智能体在默认情况下进行网络搜索的回退引擎。",
+          "provider_description": "选择在由 Web Search 工具处理请求时默认使用的搜索引擎。",
           "proxy": "HTTPS 代理",
           "proxy_description": "用于底层网页请求的可选全局代理配置。",
           "prefer_native": "优先使用模型搜索",
-          "prefer_native_hint": "如果当前模型本身支持联网功能，则直接使用模型自带的搜索能力",
+          "prefer_native_hint": "启用后，模型在支持时可以直接使用自身搜索能力，而不必走已配置的搜索引擎列表。",
           "provider_hint": "启用该服务后，可继续填写所需的连接参数。",
           "max_results": "最大获取结果数",
           "base_url": "API 请求地址",
@@ -592,7 +591,8 @@
           "requires_linux": "该工具仅在 Linux 主机上可用，并且需要暴露对应的设备文件。",
           "requires_skills": "需要先启用 `tools.skills`，该技能注册表工具才能使用。",
           "requires_subagent": "需要先启用 `tools.subagent`，`spawn` 才能委派任务。",
-          "requires_mcp_discovery": "需要先启用 `tools.mcp.discovery`，MCP 发现工具才会可用。"
+          "requires_mcp_discovery": "需要先启用 `tools.mcp.discovery`，MCP 发现工具才会可用。",
+          "requires_web_search_provider": "请至少配置一个可用的外部网络搜索 provider。"
         }
       }
     },

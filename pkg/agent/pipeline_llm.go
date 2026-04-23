@@ -39,10 +39,10 @@ func (p *Pipeline) CallLLM(
 	exec.providerToolDefs = ts.agent.Tools.ToProviderDefs()
 
 	// Native web search support
-	_, hasWebSearch := ts.agent.Tools.Get("web_search")
-	exec.useNativeSearch = al.cfg.Tools.Web.PreferNative && hasWebSearch &&
+	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web")
+	exec.useNativeSearch = webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
 		func() bool {
-			if ns, ok := ts.agent.Provider.(interface{ SupportsNativeSearch() bool }); ok {
+			if ns, ok := ts.agent.Provider.(providers.NativeSearchCapable); ok {
 				return ns.SupportsNativeSearch()
 			}
 			return false

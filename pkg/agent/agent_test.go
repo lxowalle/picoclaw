@@ -161,6 +161,58 @@ func newTestAgentLoop(
 	return al, cfg, msgBus, provider, func() { os.RemoveAll(tmpDir) }
 }
 
+func TestNewAgentLoop_RegistersWebSearchTool(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), &mockProvider{})
+
+	agent := al.registry.GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("expected default agent")
+	}
+	if _, ok := agent.Tools.Get("web_search"); !ok {
+		t.Fatal("expected web_search tool to be registered")
+	}
+}
+
+func TestNewAgentLoop_RegistersWebSearchTool_WhenExplicitProviderUnavailable(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+	cfg.Tools.Web.Provider = "brave"
+	cfg.Tools.Web.Brave.Enabled = true
+	cfg.Tools.Web.Sogou.Enabled = true
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), &mockProvider{})
+
+	agent := al.registry.GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("expected default agent")
+	}
+	if _, ok := agent.Tools.Get("web_search"); !ok {
+		t.Fatal("expected web_search tool to fall back to auto provider selection")
+	}
+}
+
+func TestNewAgentLoop_DoesNotRegisterWebSearchTool_WhenNoReadyProviders(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+	cfg.Tools.Web.Provider = "brave"
+	cfg.Tools.Web.Brave.Enabled = true
+	cfg.Tools.Web.Sogou.Enabled = false
+	cfg.Tools.Web.DuckDuckGo.Enabled = false
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), &mockProvider{})
+
+	agent := al.registry.GetDefaultAgent()
+	if agent == nil {
+		t.Fatal("expected default agent")
+	}
+	if _, ok := agent.Tools.Get("web_search"); ok {
+		t.Fatal("expected web_search tool to be absent when no providers are ready")
+	}
+}
+
 func TestProcessMessage_IncludesCurrentSenderInDynamicContext(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "agent-test-*")
 	if err != nil {
