@@ -135,7 +135,7 @@ toolLoop:
 							AgentID:    ts.agent.ID,
 							SessionKey: ts.sessionKey,
 							Scope:      outboundScopeFromSessionScope(ts.opts.Dispatch.SessionScope),
-							Parts:   parts,
+							Parts:      parts,
 						}
 						if al.channelManager != nil && ts.channel != "" && !constants.IsInternalChannel(ts.channel) {
 							if err := al.channelManager.SendMedia(ctx, outboundMedia); err != nil {

@@ -118,7 +118,7 @@ func (m *mockStreamer) Cancel(context.Context) {}
 
 type mockStreamingChannel struct {
 	mockMessageEditor
-	streamer Streamer
+	streamer        Streamer
 	resolveChatIDFn func(chatID string, outboundCtx *bus.InboundContext) string
 }
 
