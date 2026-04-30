@@ -105,12 +105,18 @@ func (rt *Runtime) FinalizeTurn(ctx context.Context, input TurnCaseInput) error 
 
 	success := input.Status == "completed"
 	skillUsage := buildSkillUsage(input)
-	workspaceID := input.WorkspaceID
-	if workspaceID == "" {
-		workspaceID = input.Workspace
-	}
+	workspaceID := input.Workspace
 
 	toolKinds := cloneToolKinds(input)
+	source := map[string]any{
+		"turn_id":     input.TurnID,
+		"session_key": input.SessionKey,
+		"agent_id":    input.AgentID,
+		"workspace":   input.Workspace,
+	}
+	if override := strings.TrimSpace(input.WorkspaceID); override != "" && override != input.Workspace {
+		source["workspace_id_override"] = override
+	}
 	record := LearningRecord{
 		ID:                  input.TurnID,
 		Kind:                RecordKindTask,
@@ -121,7 +127,7 @@ func (rt *Runtime) FinalizeTurn(ctx context.Context, input TurnCaseInput) error 
 		Summary:             buildRecordSummary(input),
 		UserGoal:            summarizeText(input.UserMessage, 240),
 		FinalOutput:         summarizeText(input.FinalContent, 240),
-		Source:              map[string]any{"turn_id": input.TurnID, "session_key": input.SessionKey, "agent_id": input.AgentID},
+		Source:              source,
 		Status:              RecordStatus("new"),
 		Success:             &success,
 		ToolKinds:           toolKinds,
@@ -682,14 +688,10 @@ func passesColdPathRuleFilter(record LearningRecord) bool {
 
 func (rt *Runtime) storeForWorkspace(workspace string) *Store {
 	paths := NewPaths(workspace, rt.cfg.StateDir)
-
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-
-	if rt.store == nil || rt.store.paths.RootDir != paths.RootDir {
-		rt.store = NewStore(paths)
+	if rt.store != nil && rt.store.paths.RootDir == paths.RootDir && rt.store.paths.Workspace == paths.Workspace {
+		return rt.store
 	}
-	return rt.store
+	return NewStore(paths)
 }
 
 func (rt *Runtime) skillsRecallerForWorkspace(workspace string) *SkillsRecaller {
@@ -1152,25 +1154,22 @@ func (rt *Runtime) saveAppliedProfile(store *Store, workspace string, draft Skil
 }
 
 func (rt *Runtime) recordRollbackAudit(store *Store, draft SkillDraft, applyErr error) error {
-	profile, err := store.LoadProfile(draft.TargetSkillName)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
 	now := rt.now()
-	profile.VersionHistory = append(profile.VersionHistory, SkillVersionEntry{
-		Version:        profile.CurrentVersion,
-		Action:         "rollback",
-		Timestamp:      now,
-		DraftID:        draft.ID,
-		Summary:        fmt.Sprintf("Rolled back failed draft apply: %s", draft.HumanSummary),
-		Rollback:       true,
-		RollbackReason: applyErr.Error(),
+	return store.UpdateProfile(draft.WorkspaceID, draft.TargetSkillName, func(profile *SkillProfile, exists bool) error {
+		if !exists {
+			return nil
+		}
+		profile.VersionHistory = append(profile.VersionHistory, SkillVersionEntry{
+			Version:        profile.CurrentVersion,
+			Action:         "rollback",
+			Timestamp:      now,
+			DraftID:        draft.ID,
+			Summary:        fmt.Sprintf("Rolled back failed draft apply: %s", draft.HumanSummary),
+			Rollback:       true,
+			RollbackReason: applyErr.Error(),
+		})
+		return nil
 	})
-	return store.SaveProfile(profile)
 }
 
 func profileOrigin(origin string) string {
@@ -1225,37 +1224,34 @@ func (rt *Runtime) recordSkillUsage(input TurnCaseInput, success bool) error {
 
 func (rt *Runtime) touchSkillProfile(store *Store, input TurnCaseInput, skillName string, success bool) error {
 	now := rt.now()
-
-	profile, err := store.LoadProfile(skillName)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		profile = SkillProfile{
-			SkillName:      skillName,
-			WorkspaceID:    input.Workspace,
-			Status:         SkillStatusActive,
-			Origin:         "manual",
-			HumanSummary:   skillName,
-			RetentionScore: 0.2,
+	return store.UpdateProfile(input.Workspace, skillName, func(profile *SkillProfile, exists bool) error {
+		if !exists {
+			*profile = SkillProfile{
+				SkillName:      skillName,
+				WorkspaceID:    input.Workspace,
+				Status:         SkillStatusActive,
+				Origin:         "manual",
+				HumanSummary:   skillName,
+				RetentionScore: 0.2,
+			}
 		}
-	}
 
-	profile.SkillName = skillName
-	profile.WorkspaceID = input.Workspace
-	if profile.Status == SkillStatusCold || profile.Status == SkillStatusArchived || profile.Status == "" {
-		profile.Status = SkillStatusActive
-	}
-	if profile.Origin == "" {
-		profile.Origin = "manual"
-	}
-	if strings.TrimSpace(profile.HumanSummary) == "" {
-		profile.HumanSummary = skillName
-	}
-	profile.LastUsedAt = now
-	profile.UseCount++
-	profile.RetentionScore = nextRetentionScore(profile.RetentionScore, success)
-	return store.SaveProfile(profile)
+		profile.SkillName = skillName
+		profile.WorkspaceID = input.Workspace
+		if profile.Status == SkillStatusCold || profile.Status == SkillStatusArchived || profile.Status == "" {
+			profile.Status = SkillStatusActive
+		}
+		if profile.Origin == "" {
+			profile.Origin = "manual"
+		}
+		if strings.TrimSpace(profile.HumanSummary) == "" {
+			profile.HumanSummary = skillName
+		}
+		profile.LastUsedAt = now
+		profile.UseCount++
+		profile.RetentionScore = nextRetentionScore(profile.RetentionScore, success)
+		return nil
+	})
 }
 
 func nextRetentionScore(current float64, success bool) float64 {

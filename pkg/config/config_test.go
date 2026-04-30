@@ -174,13 +174,13 @@ func TestDefaultConfig_MCPMaxInlineTextChars(t *testing.T) {
 func TestDefaultConfig_EvolutionDefaults(t *testing.T) {
 	cfg := DefaultConfig()
 
-	assert.True(t, cfg.Evolution.Enabled)
+	assert.False(t, cfg.Evolution.Enabled)
 	assert.Equal(t, "apply", cfg.Evolution.Mode)
 	assert.Equal(t, "", cfg.Evolution.StateDir)
 	assert.Equal(t, 3, cfg.Evolution.MinCaseCount)
 	assert.Equal(t, 0.7, cfg.Evolution.MinSuccessRate)
-	assert.True(t, cfg.Evolution.RunsColdPathAutomatically())
-	assert.True(t, cfg.Evolution.AutoAppliesDrafts())
+	assert.False(t, cfg.Evolution.RunsColdPathAutomatically())
+	assert.False(t, cfg.Evolution.AutoAppliesDrafts())
 }
 
 func TestEvolutionConfig_EffectiveMode(t *testing.T) {

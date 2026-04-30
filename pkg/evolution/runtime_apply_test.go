@@ -385,6 +385,62 @@ func TestRuntime_RunColdPathOnce_ApplyFailureQuarantinesDraftAndWritesRollbackAu
 	}
 }
 
+func TestRuntime_RunColdPathOnce_FirstApplyFailureDoesNotCreateGhostProfile(t *testing.T) {
+	root := t.TempDir()
+	store := evolution.NewStore(evolution.NewPaths(root, ""))
+
+	rule := evolution.LearningRecord{
+		ID:          "rule-1",
+		Kind:        evolution.RecordKindRule,
+		WorkspaceID: root,
+		CreatedAt:   time.Unix(1700000000, 0).UTC(),
+		Summary:     "weather native-name path",
+		Status:      evolution.RecordStatus("ready"),
+		EventCount:  4,
+	}
+	if err := store.AppendLearningRecords([]evolution.LearningRecord{rule}); err != nil {
+		t.Fatalf("AppendLearningRecords: %v", err)
+	}
+
+	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
+		Config: config.EvolutionConfig{Enabled: true, Mode: "apply"},
+		Now:    func() time.Time { return time.Unix(1700001000, 0).UTC() },
+		Store:  store,
+		Applier: evolution.NewApplier(evolution.NewPaths(root, ""), func() time.Time {
+			return time.Unix(1700001000, 0).UTC()
+		}),
+		DraftGenerator: stubDraftGenerator{
+			draft: evolution.SkillDraft{
+				ID:              "draft-ghost-profile",
+				WorkspaceID:     root,
+				SourceRecordID:  "rule-1",
+				TargetSkillName: "weather",
+				DraftType:       evolution.DraftTypeShortcut,
+				ChangeKind:      evolution.ChangeKindCreate,
+				HumanSummary:    "broken weather helper",
+				BodyOrPatch:     "invalid-frontmatter",
+			},
+		},
+		Organizer:      evolution.NewOrganizer(evolution.OrganizerOptions{MinCaseCount: 3, MinSuccessRate: 0.7}),
+		SkillsRecaller: evolution.NewSkillsRecaller(root),
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+
+	err = rt.RunColdPathOnce(context.Background(), root)
+	if err == nil {
+		t.Fatal("expected RunColdPathOnce to fail")
+	}
+	if !errors.Is(err, evolution.ErrApplyDraftFailed) {
+		t.Fatalf("error = %v, want ErrApplyDraftFailed", err)
+	}
+
+	if _, err := store.LoadProfile("weather"); !os.IsNotExist(err) {
+		t.Fatalf("expected no profile after first apply failure, got err=%v", err)
+	}
+}
+
 func TestRuntime_RunColdPathOnce_AutoRunsLifecycleMaintenance(t *testing.T) {
 	root := t.TempDir()
 	paths := evolution.NewPaths(root, "")

@@ -607,6 +607,43 @@ func TestEvolutionBridge_CloseStopsColdPathRunnerIdempotently(t *testing.T) {
 	}
 }
 
+func TestEvolutionBridge_CloseRejectsLateTurnEndEvents(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := &config.Config{
+		Evolution: config.EvolutionConfig{
+			Enabled: true,
+			Mode:    "observe",
+		},
+	}
+
+	bridge, err := newEvolutionBridge(nil, cfg, nil)
+	if err != nil {
+		t.Fatalf("newEvolutionBridge: %v", err)
+	}
+
+	if err := bridge.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	err = bridge.OnEvent(context.Background(), Event{
+		Kind: EventKindTurnEnd,
+		Meta: EventMeta{
+			TurnID:     "turn-after-close",
+			SessionKey: "session-after-close",
+			AgentID:    "agent-after-close",
+		},
+		Payload: TurnEndPayload{
+			Status:    TurnEndStatusCompleted,
+			Workspace: workspace,
+		},
+	})
+	if err != nil {
+		t.Fatalf("OnEvent() error = %v", err)
+	}
+
+	assertNotExists(t, filepath.Join(workspace, "state", "evolution", "learning-records.jsonl"))
+}
+
 func TestAgentLoop_ReloadProviderAndConfig_RebuildsEvolutionBridge(t *testing.T) {
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{

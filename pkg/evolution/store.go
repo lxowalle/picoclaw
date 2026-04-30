@@ -5,8 +5,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -159,7 +159,48 @@ func (s *Store) SaveProfile(profile SkillProfile) error {
 }
 
 func (s *Store) LoadProfile(skillName string) (SkillProfile, error) {
-	paths, err := s.profileLookupPaths(skillName)
+	return s.loadProfileForWorkspace(strings.TrimSpace(s.paths.Workspace), skillName)
+}
+
+func (s *Store) UpdateProfile(
+	workspaceID, skillName string,
+	update func(profile *SkillProfile, exists bool) error,
+) error {
+	targetPath, err := s.profilePath(workspaceID, skillName)
+	if err != nil {
+		return err
+	}
+
+	unlock := lockStoreFile(targetPath)
+	defer unlock()
+
+	profile, err := s.loadProfileForWorkspace(workspaceID, skillName)
+	exists := err == nil
+	if errors.Is(err, os.ErrNotExist) {
+		profile = SkillProfile{}
+	} else if err != nil {
+		return err
+	}
+
+	if err := update(&profile, exists); err != nil {
+		return err
+	}
+	if !exists && isZeroSkillProfile(profile) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(profile, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fileutil.WriteFileAtomic(targetPath, data, 0o644)
+}
+
+func (s *Store) loadProfileForWorkspace(workspaceID, skillName string) (SkillProfile, error) {
+	paths, err := s.profileLookupPaths(workspaceID, skillName)
 	if err != nil {
 		return SkillProfile{}, err
 	}
@@ -174,6 +215,23 @@ func (s *Store) LoadProfile(skillName string) (SkillProfile, error) {
 		return profile, nil
 	}
 	return SkillProfile{}, os.ErrNotExist
+}
+
+func isZeroSkillProfile(profile SkillProfile) bool {
+	return profile.SkillName == "" &&
+		profile.WorkspaceID == "" &&
+		profile.CurrentVersion == "" &&
+		profile.Status == "" &&
+		profile.Origin == "" &&
+		profile.HumanSummary == "" &&
+		profile.ChangeReason == "" &&
+		len(profile.IntendedUseCases) == 0 &&
+		len(profile.PreferredEntryPath) == 0 &&
+		len(profile.AvoidPatterns) == 0 &&
+		profile.LastUsedAt.IsZero() &&
+		profile.UseCount == 0 &&
+		profile.RetentionScore == 0 &&
+		len(profile.VersionHistory) == 0
 }
 
 func (s *Store) LoadProfiles() ([]SkillProfile, error) {
@@ -310,7 +368,7 @@ func (s *Store) loadProfileFromPath(path string) (SkillProfile, error) {
 	return profile, nil
 }
 
-func (s *Store) profileLookupPaths(skillName string) ([]string, error) {
+func (s *Store) profileLookupPaths(workspaceID, skillName string) ([]string, error) {
 	if err := skills.ValidateSkillName(skillName); err != nil {
 		return nil, err
 	}
@@ -328,12 +386,16 @@ func (s *Store) profileLookupPaths(skillName string) ([]string, error) {
 		seen[path] = struct{}{}
 	}
 
-	if workspaceID := strings.TrimSpace(s.paths.Workspace); workspaceID != "" {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID != "" {
 		path, err := s.profilePath(workspaceID, skillName)
 		if err != nil {
 			return nil, err
 		}
 		appendPath(path)
+		if !usesDefaultWorkspaceState(s.paths, workspaceID) {
+			return paths, nil
+		}
 	}
 
 	legacyPath, err := s.profilePath("", skillName)
@@ -341,16 +403,6 @@ func (s *Store) profileLookupPaths(skillName string) ([]string, error) {
 		return nil, err
 	}
 	appendPath(legacyPath)
-
-	matches, err := filepath.Glob(filepath.Join(s.paths.ProfilesDir, "*", skillName+".json"))
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(matches)
-	for _, match := range matches {
-		appendPath(match)
-	}
-
 	return paths, nil
 }
 

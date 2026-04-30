@@ -48,8 +48,8 @@ func DefaultConfig() *Config {
 		Evolution: EvolutionConfig{
 			Enabled:        false,
 			Mode:           "apply",
-			MinCaseCount:   2,
-			MinSuccessRate: 0.4,
+			MinCaseCount:   3,
+			MinSuccessRate: 0.7,
 		},
 		Channels: defaultChannels(),
 		Hooks: HooksConfig{

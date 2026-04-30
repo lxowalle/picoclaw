@@ -1,6 +1,9 @@
 package evolution_test
 
 import (
+	"errors"
+	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -166,5 +169,79 @@ func TestStore_SharedStateProfilesRemainIsolatedPerWorkspace(t *testing.T) {
 	}
 	if len(allProfiles) != 2 {
 		t.Fatalf("len(LoadProfiles()) = %d, want 2", len(allProfiles))
+	}
+}
+
+func TestStore_LoadProfileDoesNotBorrowAnotherWorkspaceProfile(t *testing.T) {
+	sharedState := t.TempDir()
+	workspaceA := t.TempDir()
+	workspaceB := t.TempDir()
+
+	storeA := evolution.NewStore(evolution.NewPaths(workspaceA, sharedState))
+	storeB := evolution.NewStore(evolution.NewPaths(workspaceB, sharedState))
+
+	if err := storeA.SaveProfile(evolution.SkillProfile{
+		SkillName:      "weather",
+		WorkspaceID:    workspaceA,
+		CurrentVersion: "v-a",
+		Status:         evolution.SkillStatusActive,
+		Origin:         "evolved",
+		HumanSummary:   "workspace A weather helper",
+		LastUsedAt:     time.Unix(1700000000, 0).UTC(),
+		UseCount:       4,
+		RetentionScore: 0.8,
+	}); err != nil {
+		t.Fatalf("storeA.SaveProfile: %v", err)
+	}
+
+	_, err := storeB.LoadProfile("weather")
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("storeB.LoadProfile should not borrow workspace A profile, got err=%v", err)
+	}
+}
+
+func TestStore_UpdateProfileIsAtomicPerWorkspaceSkill(t *testing.T) {
+	root := t.TempDir()
+	store := evolution.NewStore(evolution.NewPaths(root, ""))
+
+	const workers = 64
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- store.UpdateProfile(root, "weather", func(profile *evolution.SkillProfile, exists bool) error {
+				if !exists {
+					*profile = evolution.SkillProfile{
+						SkillName:      "weather",
+						WorkspaceID:    root,
+						Status:         evolution.SkillStatusActive,
+						Origin:         "manual",
+						HumanSummary:   "weather",
+						RetentionScore: 0.2,
+					}
+				}
+				profile.UseCount++
+				return nil
+			})
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("UpdateProfile: %v", err)
+		}
+	}
+
+	profile, err := store.LoadProfile("weather")
+	if err != nil {
+		t.Fatalf("LoadProfile: %v", err)
+	}
+	if profile.UseCount != workers {
+		t.Fatalf("UseCount = %d, want %d", profile.UseCount, workers)
 	}
 }

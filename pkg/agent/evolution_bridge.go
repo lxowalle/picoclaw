@@ -19,6 +19,8 @@ type evolutionBridge struct {
 	coldPathRunner *evolution.ColdPathRunner
 	bgCtx          context.Context
 	cancel         context.CancelFunc
+	closeMu        sync.Mutex
+	closed         bool
 	wg             sync.WaitGroup
 }
 
@@ -79,6 +81,14 @@ func (b *evolutionBridge) Close() error {
 	if b == nil {
 		return nil
 	}
+
+	b.closeMu.Lock()
+	alreadyClosed := b.closed
+	b.closed = true
+	b.closeMu.Unlock()
+	if alreadyClosed {
+		return nil
+	}
 	if b.cancel != nil {
 		b.cancel()
 	}
@@ -135,7 +145,13 @@ func (b *evolutionBridge) handleTurnEndAsync(meta EventMeta, payload TurnEndPayl
 		ctx = context.Background()
 	}
 
+	b.closeMu.Lock()
+	if b.closed {
+		b.closeMu.Unlock()
+		return
+	}
 	b.wg.Add(1)
+	b.closeMu.Unlock()
 	go func() {
 		defer b.wg.Done()
 		if err := b.runtime.FinalizeTurn(ctx, input); err != nil {

@@ -222,8 +222,11 @@ func TestRuntime_FinalizeTurnWritesRecordWithOverride(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
 		t.Fatalf("Unmarshal second record: %v", err)
 	}
-	if second.WorkspaceID != "ws-explicit" {
-		t.Fatalf("second WorkspaceID = %q, want %q", second.WorkspaceID, "ws-explicit")
+	if second.WorkspaceID != workspace {
+		t.Fatalf("second WorkspaceID = %q, want %q", second.WorkspaceID, workspace)
+	}
+	if second.Source["workspace_id_override"] != "ws-explicit" {
+		t.Fatalf("second Source.workspace_id_override = %#v, want %q", second.Source["workspace_id_override"], "ws-explicit")
 	}
 	if second.SessionKey != "session-2" {
 		t.Fatalf("second SessionKey = %q, want %q", second.SessionKey, "session-2")
@@ -257,6 +260,89 @@ func TestRuntime_FinalizeTurnWritesRecordWithOverride(t *testing.T) {
 	}
 	if len(second.Signals) != 0 {
 		t.Fatalf("second Signals = %v, want empty for failed turn", second.Signals)
+	}
+}
+
+func TestRuntime_FinalizeTurnSharedStateKeepsSkillProfilesScoped(t *testing.T) {
+	sharedState := t.TempDir()
+	workspaceA := t.TempDir()
+	workspaceB := t.TempDir()
+	now := time.Unix(1700000000, 0).UTC()
+
+	storeA := evolution.NewStore(evolution.NewPaths(workspaceA, sharedState))
+	if err := storeA.SaveProfile(evolution.SkillProfile{
+		SkillName:      "weather",
+		WorkspaceID:    workspaceA,
+		CurrentVersion: "draft-a",
+		Status:         evolution.SkillStatusActive,
+		Origin:         "evolved",
+		HumanSummary:   "workspace A weather helper",
+		LastUsedAt:     now,
+		UseCount:       7,
+		RetentionScore: 0.9,
+	}); err != nil {
+		t.Fatalf("storeA.SaveProfile: %v", err)
+	}
+
+	rt, err := evolution.NewRuntime(evolution.RuntimeOptions{
+		Config: config.EvolutionConfig{
+			Enabled:  true,
+			Mode:     "observe",
+			StateDir: sharedState,
+		},
+		Now: func() time.Time { return now.Add(time.Minute) },
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+
+	if err := rt.FinalizeTurn(context.Background(), evolution.TurnCaseInput{
+		Workspace:        workspaceA,
+		TurnID:           "turn-a",
+		SessionKey:       "session-a",
+		Status:           "completed",
+		ActiveSkillNames: []string{"weather"},
+	}); err != nil {
+		t.Fatalf("FinalizeTurn(workspaceA): %v", err)
+	}
+
+	if err := rt.FinalizeTurn(context.Background(), evolution.TurnCaseInput{
+		Workspace:        workspaceB,
+		TurnID:           "turn-b",
+		SessionKey:       "session-b",
+		Status:           "completed",
+		ActiveSkillNames: []string{"weather"},
+	}); err != nil {
+		t.Fatalf("FinalizeTurn(workspaceB): %v", err)
+	}
+
+	loadedA, err := storeA.LoadProfile("weather")
+	if err != nil {
+		t.Fatalf("storeA.LoadProfile: %v", err)
+	}
+	if loadedA.WorkspaceID != workspaceA {
+		t.Fatalf("workspace A profile WorkspaceID = %q, want %q", loadedA.WorkspaceID, workspaceA)
+	}
+	if loadedA.UseCount != 8 {
+		t.Fatalf("workspace A profile UseCount = %d, want 8", loadedA.UseCount)
+	}
+
+	storeB := evolution.NewStore(evolution.NewPaths(workspaceB, sharedState))
+	loadedB, err := storeB.LoadProfile("weather")
+	if err != nil {
+		t.Fatalf("storeB.LoadProfile: %v", err)
+	}
+	if loadedB.WorkspaceID != workspaceB {
+		t.Fatalf("workspace B profile WorkspaceID = %q, want %q", loadedB.WorkspaceID, workspaceB)
+	}
+	if loadedB.UseCount != 1 {
+		t.Fatalf("workspace B profile UseCount = %d, want 1", loadedB.UseCount)
+	}
+	if loadedB.Origin != "manual" {
+		t.Fatalf("workspace B profile Origin = %q, want manual", loadedB.Origin)
+	}
+	if loadedB.CurrentVersion != "" {
+		t.Fatalf("workspace B profile CurrentVersion = %q, want empty", loadedB.CurrentVersion)
 	}
 }
 
