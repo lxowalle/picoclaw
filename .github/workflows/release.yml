@@ -194,28 +194,40 @@ jobs:
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
         run: |
+          RCODESIGN_VERSION=0.29.0
+          RCODESIGN_ARCHIVE="apple-codesign-${RCODESIGN_VERSION}-macos-universal.tar.gz"
+          RCODESIGN_DIR="apple-codesign-${RCODESIGN_VERSION}-macos-universal"
+          RCODESIGN_URL="https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F${RCODESIGN_VERSION}/${RCODESIGN_ARCHIVE}"
+
           cleanup() {
-            rm -rf .venv-rcodesign
-            rm -f cert.p12 notary-key.p8
+            rm -rf "${RCODESIGN_DIR}"
+            rm -f "${RCODESIGN_ARCHIVE}" "${RCODESIGN_ARCHIVE}.sha256" cert.p12 notary-key.p8 notary-key.json
           }
           trap cleanup EXIT
 
-          python3 -m venv .venv-rcodesign
-          ./.venv-rcodesign/bin/python -m pip install --upgrade pip
-          ./.venv-rcodesign/bin/python -m pip install rcodesign
+          curl -L --fail -o "${RCODESIGN_ARCHIVE}" "${RCODESIGN_URL}"
+          curl -L --fail -o "${RCODESIGN_ARCHIVE}.sha256" "${RCODESIGN_URL}.sha256"
+          echo "$(cat "${RCODESIGN_ARCHIVE}.sha256")  ${RCODESIGN_ARCHIVE}" | shasum -a 256 -c -
+          tar xzf "${RCODESIGN_ARCHIVE}"
+          RCODESIGN="./${RCODESIGN_DIR}/rcodesign"
 
           echo "$MACOS_SIGN_P12" | base64 -d > cert.p12
 
-          ./.venv-rcodesign/bin/rcodesign sign \
+          "${RCODESIGN}" sign \
             --p12-file cert.p12 \
             --p12-password "$MACOS_SIGN_PASSWORD" \
             picoclaw-launcher-cgo
 
-          echo "$MACOS_NOTARY_KEY" > notary-key.p8
+          printf '%s' "$MACOS_NOTARY_KEY" > notary-key.p8
 
-          ./.venv-rcodesign/bin/rcodesign notary-submit \
-            --api-key-path notary-key.p8 \
-            --api-issuer "$MACOS_NOTARY_ISSUER_ID" \
+          "${RCODESIGN}" encode-app-store-connect-api-key \
+            -o notary-key.json \
+            "$MACOS_NOTARY_ISSUER_ID" \
+            "$MACOS_NOTARY_KEY_ID" \
+            notary-key.p8
+
+          "${RCODESIGN}" notary-submit \
+            --api-key-file notary-key.json \
             --wait \
             picoclaw-launcher-cgo
 
