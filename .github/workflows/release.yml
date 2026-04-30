@@ -201,7 +201,7 @@ jobs:
 
           cleanup() {
             rm -rf "${RCODESIGN_DIR}"
-            rm -f "${RCODESIGN_ARCHIVE}" "${RCODESIGN_ARCHIVE}.sha256" cert.p12 notary-key.p8 notary-key.json
+            rm -f "${RCODESIGN_ARCHIVE}" "${RCODESIGN_ARCHIVE}.sha256" cert.p12 raw-notary-key.p8 notary-key.p8 notary-key.json
           }
           trap cleanup EXIT
 
@@ -220,22 +220,25 @@ jobs:
 
           if printf '%s' "$MACOS_NOTARY_KEY" | grep -q '-----BEGIN PRIVATE KEY-----'; then
             if printf '%s' "$MACOS_NOTARY_KEY" | grep -q '\\n'; then
-              printf '%b' "$MACOS_NOTARY_KEY" > notary-key.p8
+              printf '%b' "$MACOS_NOTARY_KEY" > raw-notary-key.p8
             else
-              printf '%s\n' "$MACOS_NOTARY_KEY" > notary-key.p8
+              printf '%s\n' "$MACOS_NOTARY_KEY" > raw-notary-key.p8
             fi
-          elif printf '%s' "$MACOS_NOTARY_KEY" | base64 -d > notary-key.p8 2>/dev/null; then
+          elif printf '%s' "$MACOS_NOTARY_KEY" | base64 -d > raw-notary-key.p8 2>/dev/null; then
             :
           else
-            echo "$MACOS_NOTARY_KEY" | tr ' ' '\n' > notary-key.p8
+            echo "$MACOS_NOTARY_KEY" | tr ' ' '\n' > raw-notary-key.p8
           fi
 
-          if ! grep -q '^-----BEGIN PRIVATE KEY-----$' notary-key.p8 || ! grep -q '^-----END PRIVATE KEY-----$' notary-key.p8; then
+          tr -d '\r' < raw-notary-key.p8 > raw-notary-key.p8.tmp
+          mv raw-notary-key.p8.tmp raw-notary-key.p8
+
+          if ! grep -q '^-----BEGIN PRIVATE KEY-----$' raw-notary-key.p8 || ! grep -q '^-----END PRIVATE KEY-----$' raw-notary-key.p8; then
             echo "::error::MACOS_NOTARY_KEY is not a valid PEM private key after normalization"
             exit 1
           fi
 
-          if ! openssl pkey -in notary-key.p8 -noout >/dev/null 2>&1; then
+          if ! openssl pkey -in raw-notary-key.p8 -out notary-key.p8 >/dev/null 2>&1; then
             echo "::error::MACOS_NOTARY_KEY could not be parsed as a PEM private key"
             exit 1
           fi
