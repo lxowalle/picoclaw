@@ -304,10 +304,22 @@ func TestEvolutionBridge_DraftModeUsesProviderDefaultModel(t *testing.T) {
 		response:     `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"append","human_summary":"Prefer native-name path first","body_or_patch":"## Start Here\nUse native-name query first."}`,
 	}
 
-	al := newEvolutionTestLoop(t, tmpDir, config.EvolutionConfig{
-		Enabled: true,
-		Mode:    "draft",
-	}, provider)
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "",
+				MaxTokens:         4096,
+				MaxToolIterations: 3,
+			},
+		},
+		Evolution: config.EvolutionConfig{
+			Enabled: true,
+			Mode:    "draft",
+		},
+	}
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), provider)
 	defer al.Close()
 
 	if _, err := al.ProcessDirectWithChannel(context.Background(), "hello", "session-auto-cold-path-model", "cli", "direct"); err != nil {
@@ -318,6 +330,45 @@ func TestEvolutionBridge_DraftModeUsesProviderDefaultModel(t *testing.T) {
 	waitForDrafts(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"), 1)
 	if provider.lastModel != "provider-explicit-model" {
 		t.Fatalf("lastModel = %q, want provider-explicit-model", provider.lastModel)
+	}
+}
+
+func TestEvolutionBridge_DraftModePrefersConfigDefaultModelName(t *testing.T) {
+	tmpDir := t.TempDir()
+	seedReadyRule(t, tmpDir)
+
+	provider := &capturingEvolutionDraftProvider{
+		defaultModel: "provider-default-model",
+		response:     `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"append","human_summary":"Prefer native-name path first","body_or_patch":"## Start Here\nUse native-name query first."}`,
+	}
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 3,
+			},
+		},
+		Evolution: config.EvolutionConfig{
+			Enabled: true,
+			Mode:    "draft",
+		},
+	}
+	cfg.Agents.Defaults.ModelName = "resolved-config-model"
+
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), provider)
+	defer al.Close()
+
+	if _, err := al.ProcessDirectWithChannel(context.Background(), "hello", "session-auto-cold-path-model-config", "cli", "direct"); err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+
+	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "learning-records.jsonl"))
+	waitForDrafts(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"), 1)
+	if provider.lastModel != "resolved-config-model" {
+		t.Fatalf("lastModel = %q, want resolved-config-model", provider.lastModel)
 	}
 }
 

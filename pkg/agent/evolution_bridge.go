@@ -27,10 +27,7 @@ func newEvolutionBridge(registry *AgentRegistry, cfg *config.Config, provider pr
 		return nil, nil
 	}
 
-	modelID := ""
-	if provider != nil {
-		modelID = provider.GetDefaultModel()
-	}
+	modelID := resolvedEvolutionModelID(cfg, provider)
 	runtime, err := evolution.NewRuntime(evolution.RuntimeOptions{
 		Config: cfg.Evolution,
 		GeneratorFactory: func(workspace string) evolution.DraftGenerator {
@@ -64,6 +61,18 @@ func newEvolutionBridge(registry *AgentRegistry, cfg *config.Config, provider pr
 	}
 
 	return bridge, nil
+}
+
+func resolvedEvolutionModelID(cfg *config.Config, provider providers.LLMProvider) string {
+	if cfg != nil {
+		if modelID := cfg.Agents.Defaults.GetModelName(); modelID != "" {
+			return modelID
+		}
+	}
+	if provider != nil {
+		return provider.GetDefaultModel()
+	}
+	return ""
 }
 
 func (b *evolutionBridge) Close() error {

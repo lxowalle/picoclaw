@@ -336,7 +336,7 @@ func createStartupProvider(
 	if err != nil {
 		return nil, "", err
 	}
-	return providers.WithDefaultModel(provider, modelID), modelID, nil
+	return provider, modelID, nil
 }
 
 func setupAndStartServices(
