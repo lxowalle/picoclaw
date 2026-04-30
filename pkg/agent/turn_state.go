@@ -690,10 +690,7 @@ func (ts *turnState) interruptHintMessage() providers.Message {
 	if hint != "" {
 		content += "\n\nInterrupt hint: " + hint
 	}
-	return providers.Message{
-		Role:    "user",
-		Content: content,
-	}
+	return interruptPromptMessage(content)
 }
 
 // =============================================================================
