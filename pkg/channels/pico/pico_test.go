@@ -335,6 +335,62 @@ func TestBeginStream_DefaultStreamingShowsSmallIncrements(t *testing.T) {
 	}
 }
 
+func TestBeginStream_StreamsReasoningAsThoughtUpdates(t *testing.T) {
+	ch := newTestPicoChannel(t)
+	ch.config.Streaming = config.StreamingConfig{Enabled: true}
+	if err := ch.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer ch.Stop(context.Background())
+
+	clientConn, received, cleanup := newTestPicoWebSocket(t)
+	defer cleanup()
+	ch.addConnForTest(&picoConn{id: "conn-1", conn: clientConn, sessionID: "sess-1"})
+
+	streamer, err := ch.BeginStream(context.Background(), "pico:sess-1")
+	if err != nil {
+		t.Fatalf("BeginStream() error = %v", err)
+	}
+	reasoningStreamer, ok := streamer.(bus.ReasoningStreamer)
+	if !ok {
+		t.Fatal("pico stream should support reasoning updates")
+	}
+	if err := reasoningStreamer.UpdateReasoning(context.Background(), "thinking"); err != nil {
+		t.Fatalf("UpdateReasoning(first) error = %v", err)
+	}
+	first := mustReceivePicoMessage(t, received)
+	if first.Type != TypeMessageCreate {
+		t.Fatalf("first type = %q, want %q", first.Type, TypeMessageCreate)
+	}
+	msgID, _ := first.Payload["message_id"].(string)
+	if msgID == "" {
+		t.Fatalf("first message_id = %#v, want non-empty", first.Payload["message_id"])
+	}
+	if got := first.Payload[PayloadKeyKind]; got != MessageKindThought {
+		t.Fatalf("first kind = %#v, want %q", got, MessageKindThought)
+	}
+	if got := first.Payload[PayloadKeyContent]; got != "thinking" {
+		t.Fatalf("first content = %#v, want thinking", got)
+	}
+
+	if err := reasoningStreamer.UpdateReasoning(context.Background(), "thinking more"); err != nil {
+		t.Fatalf("UpdateReasoning(second) error = %v", err)
+	}
+	second := mustReceivePicoMessage(t, received)
+	if second.Type != TypeMessageUpdate {
+		t.Fatalf("second type = %q, want %q", second.Type, TypeMessageUpdate)
+	}
+	if got := second.Payload["message_id"]; got != msgID {
+		t.Fatalf("second message_id = %#v, want %q", got, msgID)
+	}
+	if got := second.Payload[PayloadKeyKind]; got != MessageKindThought {
+		t.Fatalf("second kind = %#v, want %q", got, MessageKindThought)
+	}
+	if got := second.Payload[PayloadKeyContent]; got != "thinking more" {
+		t.Fatalf("second content = %#v, want thinking more", got)
+	}
+}
+
 func TestBeginStream_ThrottlesIntermediateUpdatesAndFinalFlushes(t *testing.T) {
 	ch := newTestPicoChannel(t)
 	ch.config.Streaming = config.StreamingConfig{

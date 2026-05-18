@@ -1667,6 +1667,44 @@ func TestPreSend_StreamActiveDoesNotConsumeEarlierVisibleMessage(t *testing.T) {
 	}
 }
 
+func TestPreSend_StreamActiveDoesNotConsumeOtherSessionFinal(t *testing.T) {
+	m := newTestManager()
+	m.streamActive.Store("test:123", true)
+	m.RecordPlaceholder("test", "123", "placeholder-1")
+
+	ch := &mockMessageEditor{
+		editFn: func(_ context.Context, _, _, _ string) error {
+			t.Fatal("placeholder edit should remain deferred for the streaming session")
+			return nil
+		},
+	}
+
+	otherSessionFinal := testOutboundMessage(bus.OutboundMessage{
+		Channel:    "test",
+		ChatID:     "123",
+		SessionKey: "session-other",
+		Content:    "other session final",
+		Context: bus.InboundContext{
+			Channel: "test",
+			ChatID:  "123",
+			Raw: map[string]string{
+				"outbound_kind": "final",
+			},
+		},
+	})
+
+	_, handled := m.preSend(context.Background(), "test", otherSessionFinal, ch)
+	if handled {
+		t.Fatal("expected final outbound from a different session to be delivered normally")
+	}
+	if _, ok := m.streamActive.Load("test:123"); !ok {
+		t.Fatal("expected streaming marker to remain for the streaming session")
+	}
+	if _, ok := m.placeholders.Load("test:123"); !ok {
+		t.Fatal("expected placeholder cleanup to remain deferred to the streaming session")
+	}
+}
+
 func TestPreSendMedia_LeavesTrackedMessageForChannelSend(t *testing.T) {
 	m := newTestManager()
 	ch := &mockDeletingMediaChannel{}
@@ -1783,7 +1821,7 @@ func TestGetStreamer_FinalizeDismissesTrackedToolFeedback(t *testing.T) {
 	}
 	m.channels["test"] = ch
 
-	streamer, ok := m.GetStreamer(context.Background(), "test", "123")
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123", "")
 	if !ok {
 		t.Fatal("expected streamer to be available")
 	}
@@ -1818,7 +1856,7 @@ func TestGetStreamer_FinalizeCleansPlaceholderImmediately(t *testing.T) {
 	}
 	m.channels["test"] = ch
 
-	streamer, ok := m.GetStreamer(context.Background(), "test", "123")
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123", "")
 	if !ok {
 		t.Fatal("expected streamer to be available")
 	}
@@ -1887,6 +1925,37 @@ func TestGetStreamer_FinalizeCleansPlaceholderImmediately(t *testing.T) {
 	}
 }
 
+func TestGetStreamer_FinalizeCleansPlaceholderWithSessionKey(t *testing.T) {
+	m := newTestManager()
+	m.RecordPlaceholder("test", "123", "placeholder-1")
+	ch := &mockStreamingChannel{
+		mockMessageEditor: mockMessageEditor{
+			editFn: func(_ context.Context, chatID, messageID, content string) error {
+				if chatID != "123" || messageID != "placeholder-1" || content != "final reply" {
+					t.Fatalf("unexpected edit for %s/%s: %q", chatID, messageID, content)
+				}
+				return nil
+			},
+		},
+		streamer: &mockStreamer{},
+	}
+	m.channels["test"] = ch
+
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123", "session-1")
+	if !ok {
+		t.Fatal("expected streamer to be available")
+	}
+	if err := streamer.Finalize(context.Background(), "final reply"); err != nil {
+		t.Fatalf("Finalize() error = %v", err)
+	}
+	if _, placeholderExists := m.placeholders.Load("test:123"); placeholderExists {
+		t.Fatal("expected placeholder to be cleaned up during finalize")
+	}
+	if _, streamActiveExists := m.streamActive.Load("test:123:session-1"); !streamActiveExists {
+		t.Fatal("expected session streamActive marker to be recorded after finalize")
+	}
+}
+
 func TestGetStreamer_PreservesContextUsageStreamer(t *testing.T) {
 	m := newTestManager()
 	var gotUsage *bus.ContextUsage
@@ -1903,7 +1972,7 @@ func TestGetStreamer_PreservesContextUsageStreamer(t *testing.T) {
 	}
 	m.channels["test"] = ch
 
-	streamer, ok := m.GetStreamer(context.Background(), "test", "123")
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123", "")
 	if !ok {
 		t.Fatal("expected streamer to be available")
 	}
@@ -1948,7 +2017,7 @@ func TestGetStreamer_FinalizeSeparateMessagesClearsTrackedToolFeedback(t *testin
 	}
 	m.channels["test"] = ch
 
-	streamer, ok := m.GetStreamer(context.Background(), "test", "123")
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123", "")
 	if !ok {
 		t.Fatal("expected streamer to be available")
 	}
@@ -1990,7 +2059,7 @@ func TestGetStreamer_FinalizeDismissesResolvedTrackedToolFeedback(t *testing.T) 
 	}
 	m.channels["test"] = ch
 
-	streamer, ok := m.GetStreamer(context.Background(), "test", "-100123/42")
+	streamer, ok := m.GetStreamer(context.Background(), "test", "-100123/42", "")
 	if !ok {
 		t.Fatal("expected streamer to be available")
 	}
@@ -2059,7 +2128,7 @@ func TestGetStreamer_FinalizeFailureDoesNotDismissTrackedToolFeedback(t *testing
 	}
 	m.channels["test"] = ch
 
-	streamer, ok := m.GetStreamer(context.Background(), "test", "123")
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123", "")
 	if !ok {
 		t.Fatal("expected streamer to be available")
 	}

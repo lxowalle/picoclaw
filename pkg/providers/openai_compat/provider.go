@@ -23,6 +23,7 @@ type (
 	ToolCall               = protocoltypes.ToolCall
 	FunctionCall           = protocoltypes.FunctionCall
 	LLMResponse            = protocoltypes.LLMResponse
+	StreamChunk            = protocoltypes.StreamChunk
 	UsageInfo              = protocoltypes.UsageInfo
 	Message                = protocoltypes.Message
 	ToolDefinition         = protocoltypes.ToolDefinition
@@ -381,6 +382,28 @@ func (p *Provider) ChatStream(
 	options map[string]any,
 	onChunk func(accumulated string),
 ) (*LLMResponse, error) {
+	return p.ChatStreamEvents(
+		ctx,
+		messages,
+		tools,
+		model,
+		options,
+		func(chunk StreamChunk) {
+			if onChunk != nil && strings.TrimSpace(chunk.Content) != "" {
+				onChunk(chunk.Content)
+			}
+		},
+	)
+}
+
+func (p *Provider) ChatStreamEvents(
+	ctx context.Context,
+	messages []Message,
+	tools []ToolDefinition,
+	model string,
+	options map[string]any,
+	onChunk func(StreamChunk),
+) (*LLMResponse, error) {
 	if p.apiBase == "" {
 		return nil, fmt.Errorf("API base not configured")
 	}
@@ -429,7 +452,7 @@ func (p *Provider) ChatStream(
 func parseStreamResponse(
 	ctx context.Context,
 	reader io.Reader,
-	onChunk func(accumulated string),
+	onChunk func(StreamChunk),
 ) (*LLMResponse, error) {
 	var textContent strings.Builder
 	var reasoningContent strings.Builder
@@ -489,21 +512,28 @@ func parseStreamResponse(
 
 		choice := chunk.Choices[0]
 
-		// Accumulate text content
-		if choice.Delta.Content != "" {
-			textContent.WriteString(choice.Delta.Content)
-			if onChunk != nil {
-				onChunk(textContent.String())
-			}
-		}
 		if choice.Delta.ReasoningContent != "" {
 			reasoningContent.WriteString(choice.Delta.ReasoningContent)
+			if onChunk != nil {
+				onChunk(StreamChunk{ReasoningContent: reasoningContent.String()})
+			}
 		}
 		if choice.Delta.Reasoning != "" {
 			reasoning.WriteString(choice.Delta.Reasoning)
+			if onChunk != nil {
+				onChunk(StreamChunk{ReasoningContent: reasoning.String()})
+			}
 		}
 		if len(choice.Delta.ReasoningDetails) > 0 {
 			reasoningDetails = append(reasoningDetails, choice.Delta.ReasoningDetails...)
+		}
+		// Accumulate text content after reasoning so UIs can show thought first
+		// when a provider sends both fields in the same event.
+		if choice.Delta.Content != "" {
+			textContent.WriteString(choice.Delta.Content)
+			if onChunk != nil {
+				onChunk(StreamChunk{Content: textContent.String()})
+			}
 		}
 
 		// Accumulate tool call deltas

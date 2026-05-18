@@ -98,8 +98,8 @@ type Manager struct {
 	placeholders              sync.Map          // "channel:chatID" → placeholderID (string)
 	typingStops               sync.Map          // "channel:chatID" → func()
 	reactionUndos             sync.Map          // "channel:chatID" → reactionEntry
-	streamActive              sync.Map          // "channel:chatID" → true (set when streamer.Finalize sent the message)
-	streamAuxiliaryTombstones sync.Map          // "channel:chatID" → time.Time (drops late auxiliary messages after stream final)
+	streamActive              sync.Map          // streamSuppressionKey → true (set when streamer.Finalize sent the message)
+	streamAuxiliaryTombstones sync.Map          // streamSuppressionKey → time.Time (drops late auxiliary messages after stream final)
 	channelHashes             map[string]string // channel name → config hash
 }
 
@@ -197,6 +197,14 @@ func outboundMediaChannel(msg bus.OutboundMediaMessage) string {
 
 func outboundMediaChatID(msg bus.OutboundMediaMessage) string {
 	return msg.ChatID
+}
+
+func streamSuppressionKey(channel, chatID, sessionKey string) string {
+	key := channel + ":" + chatID
+	if strings.TrimSpace(sessionKey) == "" {
+		return key
+	}
+	return key + ":" + sessionKey
 }
 
 func trackedToolFeedbackMessageChatID(ch Channel, chatID string, outboundCtx *bus.InboundContext) string {
@@ -341,6 +349,7 @@ func (m *Manager) RecordReactionUndo(channel, chatID string, undo func()) {
 func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMessage, ch Channel) ([]string, bool) {
 	chatID := outboundMessageChatID(msg)
 	key := name + ":" + chatID
+	streamKey := streamSuppressionKey(name, chatID, msg.SessionKey)
 
 	// 1. Stop typing
 	if v, loaded := m.typingStops.LoadAndDelete(key); loaded {
@@ -367,10 +376,10 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 	// can arrive before the normal final outbound message that cleans up the
 	// marker and placeholder.
 	if isAuxiliaryMessage {
-		if _, loaded := m.streamActive.Load(key); loaded {
+		if _, loaded := m.streamActive.Load(streamKey); loaded {
 			return nil, true
 		}
-		if m.streamAuxiliaryTombstoneActive(key) {
+		if m.streamAuxiliaryTombstoneActive(streamKey) {
 			return nil, true
 		}
 	}
@@ -378,7 +387,7 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 	// 4. If a stream already finalized this turn, skip only the duplicate final
 	// outbound. Earlier queued visible messages must still be delivered.
 	if isFinalMessage {
-		if _, loaded := m.streamActive.LoadAndDelete(key); loaded {
+		if _, loaded := m.streamActive.LoadAndDelete(streamKey); loaded {
 			if v, loaded := m.placeholders.LoadAndDelete(key); loaded {
 				if entry, ok := v.(placeholderEntry); ok && entry.id != "" {
 					// Prefer deleting the placeholder (cleaner UX than editing to same content)
@@ -400,12 +409,15 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 		}
 	}
 
-	if _, loaded := m.streamActive.Load(key); loaded {
+	if _, loaded := m.streamActive.Load(streamKey); loaded {
+		return nil, false
+	}
+	if m.streamActiveForChat(name, chatID) {
 		return nil, false
 	}
 
 	if !isAuxiliaryMessage {
-		m.streamAuxiliaryTombstones.Delete(key)
+		m.streamAuxiliaryTombstones.Delete(streamKey)
 	}
 
 	if separateToolFeedbackMessages {
@@ -458,6 +470,7 @@ func (m *Manager) preSend(ctx context.Context, name string, msg bus.OutboundMess
 func (m *Manager) preSendMedia(ctx context.Context, name string, msg bus.OutboundMediaMessage, ch Channel) {
 	chatID := outboundMediaChatID(msg)
 	key := name + ":" + chatID
+	streamKey := streamSuppressionKey(name, chatID, msg.SessionKey)
 
 	// 1. Stop typing
 	if v, loaded := m.typingStops.LoadAndDelete(key); loaded {
@@ -474,8 +487,8 @@ func (m *Manager) preSendMedia(ctx context.Context, name string, msg bus.Outboun
 	}
 
 	// 3. Clear any finalized stream markers for this chat before media delivery.
-	m.streamActive.LoadAndDelete(key)
-	m.streamAuxiliaryTombstones.Delete(key)
+	m.streamActive.LoadAndDelete(streamKey)
+	m.streamAuxiliaryTombstones.Delete(streamKey)
 
 	if m.toolFeedbackSeparateMessagesEnabled() {
 		clearTrackedToolFeedbackMessage(ch, chatID, &msg.Context)
@@ -542,7 +555,7 @@ func (m *Manager) SetMediaStore(store media.MediaStore) {
 
 // GetStreamer implements bus.StreamDelegate.
 // It checks if the named channel supports streaming and returns a Streamer.
-func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID string) (bus.Streamer, bool) {
+func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID, sessionKey string) (bus.Streamer, bool) {
 	m.mu.RLock()
 	ch, exists := m.channels[channelName]
 	m.mu.RUnlock()
@@ -567,11 +580,12 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID string) (
 
 	// Mark streamActive on Finalize so preSend knows to clean up the placeholder
 	// and late auxiliary messages cannot leak after streaming produced a final.
-	key := channelName + ":" + chatID
+	streamKey := streamSuppressionKey(channelName, chatID, sessionKey)
+	placeholderKey := channelName + ":" + chatID
 	return &finalizeHookStreamer{
 		Streamer: streamer,
 		clearMarker: func() {
-			m.streamActive.Delete(key)
+			m.streamActive.Delete(streamKey)
 		},
 		onFinalize: func(finalizeCtx context.Context, finalContent string) {
 			if m.toolFeedbackSeparateMessagesEnabled() {
@@ -594,7 +608,7 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID string) (
 					},
 				)
 			}
-			if v, loaded := m.placeholders.LoadAndDelete(key); loaded {
+			if v, loaded := m.placeholders.LoadAndDelete(placeholderKey); loaded {
 				if entry, ok := v.(placeholderEntry); ok && entry.id != "" {
 					if deleter, ok := ch.(MessageDeleter); ok {
 						deleter.DeleteMessage(finalizeCtx, chatID, entry.id) // best effort
@@ -603,8 +617,8 @@ func (m *Manager) GetStreamer(ctx context.Context, channelName, chatID string) (
 					}
 				}
 			}
-			m.streamActive.Store(key, true)
-			m.streamAuxiliaryTombstones.Store(key, time.Now())
+			m.streamActive.Store(streamKey, true)
+			m.streamAuxiliaryTombstones.Store(streamKey, time.Now())
 		},
 	}, true
 }
@@ -620,6 +634,23 @@ func (m *Manager) streamAuxiliaryTombstoneActive(key string) bool {
 		return false
 	}
 	return true
+}
+
+func (m *Manager) streamActiveForChat(channel, chatID string) bool {
+	chatKey := streamSuppressionKey(channel, chatID, "")
+	found := false
+	m.streamActive.Range(func(key, _ any) bool {
+		keyString, ok := key.(string)
+		if !ok {
+			return true
+		}
+		if keyString == chatKey || strings.HasPrefix(keyString, chatKey+":") {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // finalizeHookStreamer wraps a Streamer to run a hook on Finalize.

@@ -565,6 +565,7 @@ func defaultChannels() ChannelsConfig {
 				"read_timeout":    60,
 				"write_timeout":   10,
 				"max_connections": 100,
+				"streaming":       map[string]any{"enabled": true},
 			},
 		},
 		"irc": map[string]any{

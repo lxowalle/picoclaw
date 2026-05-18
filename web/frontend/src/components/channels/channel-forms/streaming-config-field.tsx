@@ -35,12 +35,24 @@ export function StreamingConfigField({
     onChange({ ...streamingConfig, ...patch })
   }
 
+  const handleEnabledChange = (checked: boolean) => {
+    if (!checked) {
+      onChange({
+        enabled: false,
+        throttle_seconds: null,
+        min_growth_chars: null,
+      })
+      return
+    }
+    update({ enabled: true })
+  }
+
   return (
     <SwitchCardField
       label={t("channels.field.streamingEnabled")}
       hint={t("channels.form.desc.streamingEnabled")}
       checked={streamingEnabled}
-      onCheckedChange={(checked) => update({ enabled: checked })}
+      onCheckedChange={handleEnabledChange}
       ariaLabel={t("channels.field.streamingEnabled")}
     >
       {streamingEnabled && (

@@ -155,13 +155,13 @@ func TestHandleGetChannelConfig_OmitsUnconfiguredStreaming(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/channels/pico/config", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/telegram/config", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf(
-			"GET /api/channels/pico/config status = %d, want %d, body=%s",
+			"GET /api/channels/telegram/config status = %d, want %d, body=%s",
 			rec.Code,
 			http.StatusOK,
 			rec.Body.String(),

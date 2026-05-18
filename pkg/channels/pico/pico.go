@@ -497,11 +497,15 @@ type picoStreamer struct {
 	channel          *PicoChannel
 	chatID           string
 	messageID        string
+	reasoningID      string
 	throttleInterval time.Duration
 	minGrowth        int
 	lastLen          int
 	lastAt           time.Time
 	lastContent      string
+	reasoningLastLen int
+	reasoningLastAt  time.Time
+	reasoningContent string
 	mu               sync.Mutex
 }
 
@@ -521,6 +525,18 @@ func (s *picoStreamer) FinalizeWithContext(ctx context.Context, content string, 
 	return s.updateLocked(ctx, content, true, contextUsage)
 }
 
+func (s *picoStreamer) UpdateReasoning(ctx context.Context, content string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.updateReasoningLocked(ctx, content, false)
+}
+
+func (s *picoStreamer) FinalizeReasoning(ctx context.Context, content string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.updateReasoningLocked(ctx, content, true)
+}
+
 func (s *picoStreamer) Cancel(ctx context.Context) {
 	if s == nil {
 		return
@@ -528,10 +544,18 @@ func (s *picoStreamer) Cancel(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.channel == nil || s.messageID == "" {
+		if s.channel != nil && s.reasoningID != "" {
+			_ = s.channel.DeleteMessage(ctx, s.chatID, s.reasoningID)
+			s.reasoningID = ""
+		}
 		return
 	}
 	_ = s.channel.DeleteMessage(ctx, s.chatID, s.messageID)
 	s.messageID = ""
+	if s.reasoningID != "" {
+		_ = s.channel.DeleteMessage(ctx, s.chatID, s.reasoningID)
+		s.reasoningID = ""
+	}
 }
 
 func (s *picoStreamer) updateLocked(
@@ -559,6 +583,26 @@ func (s *picoStreamer) updateLocked(
 	return s.sendLocked(ctx, content, contextUsage)
 }
 
+func (s *picoStreamer) updateReasoningLocked(ctx context.Context, content string, force bool) error {
+	if s == nil || s.channel == nil {
+		return fmt.Errorf("streamer is not initialized")
+	}
+	if strings.TrimSpace(content) == "" && s.reasoningID == "" {
+		return nil
+	}
+
+	now := time.Now()
+	contentLen := len([]rune(content))
+	if s.reasoningID != "" && !force {
+		growth := contentLen - s.reasoningLastLen
+		if now.Sub(s.reasoningLastAt) < s.throttleInterval || growth < s.minGrowth {
+			return nil
+		}
+	}
+
+	return s.sendReasoningLocked(ctx, content)
+}
+
 func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUsage *bus.ContextUsage) error {
 	now := time.Now()
 	contentLen := len([]rune(content))
@@ -583,6 +627,41 @@ func (s *picoStreamer) sendLocked(ctx context.Context, content string, contextUs
 	s.lastContent = content
 	s.lastLen = contentLen
 	s.lastAt = now
+	return nil
+}
+
+func (s *picoStreamer) sendReasoningLocked(ctx context.Context, content string) error {
+	now := time.Now()
+	contentLen := len([]rune(content))
+
+	if s.reasoningID == "" {
+		s.reasoningID = uuid.New().String()
+		payload := map[string]any{
+			PayloadKeyContent: content,
+			"message_id":      s.reasoningID,
+			PayloadKeyKind:    MessageKindThought,
+			PayloadKeyThought: true,
+		}
+		outMsg := newMessage(TypeMessageCreate, payload)
+		if err := s.channel.broadcastToSession(s.chatID, outMsg); err != nil {
+			return err
+		}
+	} else if content != s.reasoningContent {
+		payload := map[string]any{
+			PayloadKeyContent: content,
+			"message_id":      s.reasoningID,
+			PayloadKeyKind:    MessageKindThought,
+			PayloadKeyThought: true,
+		}
+		outMsg := newMessage(TypeMessageUpdate, payload)
+		if err := s.channel.broadcastToSession(s.chatID, outMsg); err != nil {
+			return err
+		}
+	}
+
+	s.reasoningContent = content
+	s.reasoningLastLen = contentLen
+	s.reasoningLastAt = now
 	return nil
 }
 

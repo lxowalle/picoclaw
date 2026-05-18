@@ -299,8 +299,37 @@ func TestPublishResponseIfNeeded_MarksFinalOutbound(t *testing.T) {
 		if outbound.Context.Raw[metadataKeyOutboundKind] != outboundKindFinal {
 			t.Fatalf("outbound kind = %q, want %q", outbound.Context.Raw[metadataKeyOutboundKind], outboundKindFinal)
 		}
+		if outbound.SessionKey != "session-1" {
+			t.Fatalf("outbound session key = %q, want session-1", outbound.SessionKey)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("expected final outbound")
+	}
+}
+
+func TestPublishPicoReasoningIncludesSessionKey(t *testing.T) {
+	al, _, msgBus, provider, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+	_ = provider
+
+	al.publishPicoReasoning(context.Background(), "reasoning", "pico-chat", "session-1")
+
+	select {
+	case outbound := <-msgBus.OutboundChan():
+		if outbound.Channel != "pico" || outbound.ChatID != "pico-chat" {
+			t.Fatalf("unexpected outbound target: %+v", outbound)
+		}
+		if outbound.Content != "reasoning" {
+			t.Fatalf("outbound content = %q, want reasoning", outbound.Content)
+		}
+		if outbound.SessionKey != "session-1" {
+			t.Fatalf("outbound session key = %q, want session-1", outbound.SessionKey)
+		}
+		if outbound.Context.Raw[metadataKeyMessageKind] != messageKindThought {
+			t.Fatalf("message kind = %q, want %q", outbound.Context.Raw[metadataKeyMessageKind], messageKindThought)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected pico reasoning outbound")
 	}
 }
 

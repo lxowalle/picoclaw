@@ -75,8 +75,9 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 	}
 
 	msg := bus.OutboundMessage{
-		Context: bus.NewOutboundContext(channel, chatID, ""),
-		Content: response,
+		Context:    bus.NewOutboundContext(channel, chatID, ""),
+		SessionKey: sessionKey,
+		Content:    response,
 	}
 	if sessionKey != "" {
 		msg.ContextUsage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)
@@ -101,7 +102,7 @@ func (al *AgentLoop) targetReasoningChannelID(channelName string) (chatID string
 	return ""
 }
 
-func (al *AgentLoop) publishPicoReasoning(ctx context.Context, reasoningContent, chatID string) {
+func (al *AgentLoop) publishPicoReasoning(ctx context.Context, reasoningContent, chatID, sessionKey string) {
 	if reasoningContent == "" || chatID == "" {
 		return
 	}
@@ -121,7 +122,8 @@ func (al *AgentLoop) publishPicoReasoning(ctx context.Context, reasoningContent,
 				metadataKeyMessageKind: messageKindThought,
 			},
 		},
-		Content: reasoningContent,
+		SessionKey: sessionKey,
+		Content:    reasoningContent,
 	}); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
 			errors.Is(err, bus.ErrBusClosed) {

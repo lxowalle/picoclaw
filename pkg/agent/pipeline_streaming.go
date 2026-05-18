@@ -37,7 +37,7 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 		return nil, false, nil
 	}
 
-	streamer, ok := p.Bus.GetStreamer(ctx, ts.channel, ts.chatID)
+	streamer, ok := p.Bus.GetStreamer(ctx, ts.channel, ts.chatID, ts.sessionKey)
 	if !ok || streamer == nil {
 		logger.DebugCF("agent", "configured streaming not used", map[string]any{
 			"agent_id": ts.agent.ID,
@@ -65,22 +65,46 @@ func (p *Pipeline) tryConfiguredStreamingLLM(
 	chunkCount := 0
 	firstChunkAt := time.Time{}
 	lastChunkAt := time.Time{}
-	response, streamErr := streamProvider.ChatStream(
-		ctx,
-		messagesForCall,
-		toolDefsForCall,
-		exec.llmModel,
-		exec.llmOpts,
-		func(accumulated string) {
-			now := time.Now()
-			chunkCount++
-			if firstChunkAt.IsZero() {
-				firstChunkAt = now
-			}
-			lastChunkAt = now
-			publisher.Update(ctx, accumulated)
-		},
-	)
+	recordChunk := func() {
+		now := time.Now()
+		chunkCount++
+		if firstChunkAt.IsZero() {
+			firstChunkAt = now
+		}
+		lastChunkAt = now
+	}
+	var response *providers.LLMResponse
+	var streamErr error
+	if eventProvider, ok := exec.activeProvider.(providers.StreamingEventProvider); ok {
+		response, streamErr = eventProvider.ChatStreamEvents(
+			ctx,
+			messagesForCall,
+			toolDefsForCall,
+			exec.llmModel,
+			exec.llmOpts,
+			func(chunk providers.StreamChunk) {
+				recordChunk()
+				if strings.TrimSpace(chunk.ReasoningContent) != "" {
+					publisher.UpdateReasoning(ctx, chunk.ReasoningContent)
+				}
+				if strings.TrimSpace(chunk.Content) != "" {
+					publisher.Update(ctx, chunk.Content)
+				}
+			},
+		)
+	} else {
+		response, streamErr = streamProvider.ChatStream(
+			ctx,
+			messagesForCall,
+			toolDefsForCall,
+			exec.llmModel,
+			exec.llmOpts,
+			func(accumulated string) {
+				recordChunk()
+				publisher.Update(ctx, accumulated)
+			},
+		)
+	}
 	logConfiguredStreamingSummary(ts, exec, chunkCount, firstChunkAt, lastChunkAt, streamErr)
 	if streamErr == nil {
 		if updateErr := publisher.Err(); updateErr != nil {
@@ -344,11 +368,12 @@ func streamingConfigFromDecodedSettings(decoded any) (config.StreamingConfig, bo
 }
 
 type streamingChunkPublisher struct {
-	streamer  bus.Streamer
-	channel   string
-	chatID    string
-	published bool
-	err       error
+	streamer           bus.Streamer
+	channel            string
+	chatID             string
+	published          bool
+	reasoningPublished bool
+	err                error
 }
 
 func (p *streamingChunkPublisher) Update(ctx context.Context, accumulated string) {
@@ -367,8 +392,32 @@ func (p *streamingChunkPublisher) Update(ctx context.Context, accumulated string
 	p.published = true
 }
 
+func (p *streamingChunkPublisher) UpdateReasoning(ctx context.Context, accumulated string) {
+	if p == nil || p.streamer == nil || strings.TrimSpace(accumulated) == "" {
+		return
+	}
+	reasoningStreamer, ok := p.streamer.(bus.ReasoningStreamer)
+	if !ok {
+		return
+	}
+	if err := reasoningStreamer.UpdateReasoning(ctx, accumulated); err != nil {
+		p.err = err
+		logger.WarnCF("agent", "stream reasoning update failed", map[string]any{
+			"channel": p.channel,
+			"chat_id": p.chatID,
+			"error":   err.Error(),
+		})
+		return
+	}
+	p.reasoningPublished = true
+}
+
 func (p *streamingChunkPublisher) Published() bool {
 	return p != nil && p.published
+}
+
+func (p *streamingChunkPublisher) ReasoningPublished() bool {
+	return p != nil && p.reasoningPublished
 }
 
 func (p *streamingChunkPublisher) Err() error {
@@ -395,6 +444,20 @@ func (p *streamingChunkPublisher) Finalize(ctx context.Context, content string, 
 		return fmt.Errorf("stream finalize: %w", err)
 	}
 	p.published = true
+	return nil
+}
+
+func (p *streamingChunkPublisher) FinalizeReasoning(ctx context.Context, content string) error {
+	if p == nil || p.streamer == nil || !p.reasoningPublished || strings.TrimSpace(content) == "" {
+		return nil
+	}
+	reasoningStreamer, ok := p.streamer.(bus.ReasoningStreamer)
+	if !ok {
+		return nil
+	}
+	if err := reasoningStreamer.FinalizeReasoning(ctx, content); err != nil {
+		return fmt.Errorf("stream reasoning finalize: %w", err)
+	}
 	return nil
 }
 

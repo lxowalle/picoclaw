@@ -1318,6 +1318,53 @@ func TestProviderChatStream_ParsesReasoningContent(t *testing.T) {
 	}
 }
 
+func TestProviderChatStreamEvents_EmitsReasoningBeforeContentFromSameEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(
+			"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think\",\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\n",
+		))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	p := NewProvider("key", server.URL, "")
+	events := make([]string, 0)
+	out, err := p.ChatStreamEvents(
+		t.Context(),
+		[]Message{{Role: "user", Content: "hi"}},
+		nil,
+		"deepseek-v4-flash",
+		nil,
+		func(chunk StreamChunk) {
+			if chunk.ReasoningContent != "" {
+				events = append(events, "reasoning:"+chunk.ReasoningContent)
+			}
+			if chunk.Content != "" {
+				events = append(events, "content:"+chunk.Content)
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("ChatStreamEvents() error = %v", err)
+	}
+	if out.Content != "answer" {
+		t.Fatalf("Content = %q, want %q", out.Content, "answer")
+	}
+	if out.ReasoningContent != "think" {
+		t.Fatalf("ReasoningContent = %q, want %q", out.ReasoningContent, "think")
+	}
+	want := []string{"reasoning:think", "content:answer"}
+	if len(events) != len(want) {
+		t.Fatalf("events = %#v, want %#v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events = %#v, want %#v", events, want)
+		}
+	}
+}
+
 func TestProviderChatStream_ParsesMultilineSSEEvent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

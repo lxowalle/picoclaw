@@ -17,15 +17,23 @@ import (
 type configuredStreamingProvider struct {
 	chatCalls    int
 	streamCalls  int
+	eventCalls   int
 	chatModels   []string
 	streamModels []string
 
 	chatResponse *providers.LLMResponse
 	streamPlan   []configuredStreamingCall
+	eventPlan    []configuredStreamingEventCall
 }
 
 type configuredStreamingCall struct {
 	chunks   []string
+	response *providers.LLMResponse
+	err      error
+}
+
+type configuredStreamingEventCall struct {
+	chunks   []providers.StreamChunk
 	response *providers.LLMResponse
 	err      error
 }
@@ -71,6 +79,40 @@ func (p *configuredStreamingProvider) ChatStream(
 	return &providers.LLMResponse{Content: "stream response"}, nil
 }
 
+func (p *configuredStreamingProvider) ChatStreamEvents(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+	onChunk func(providers.StreamChunk),
+) (*providers.LLMResponse, error) {
+	p.eventCalls++
+	p.streamCalls++
+	p.streamModels = append(p.streamModels, model)
+	var plan configuredStreamingEventCall
+	if len(p.eventPlan) >= p.eventCalls {
+		plan = p.eventPlan[p.eventCalls-1]
+	} else if len(p.streamPlan) >= p.eventCalls {
+		legacyPlan := p.streamPlan[p.eventCalls-1]
+		plan.response = legacyPlan.response
+		plan.err = legacyPlan.err
+		for _, chunk := range legacyPlan.chunks {
+			plan.chunks = append(plan.chunks, providers.StreamChunk{Content: chunk})
+		}
+	}
+	for _, chunk := range plan.chunks {
+		onChunk(chunk)
+	}
+	if plan.err != nil {
+		return nil, plan.err
+	}
+	if plan.response != nil {
+		return plan.response, nil
+	}
+	return &providers.LLMResponse{Content: "stream response"}, nil
+}
+
 func (p *configuredStreamingProvider) GetDefaultModel() string {
 	return "mock-model"
 }
@@ -98,7 +140,10 @@ type configuredStreamingDelegate struct {
 	streamer bus.Streamer
 }
 
-func (d configuredStreamingDelegate) GetStreamer(ctx context.Context, channel, chatID string) (bus.Streamer, bool) {
+func (d configuredStreamingDelegate) GetStreamer(
+	ctx context.Context,
+	channel, chatID, sessionKey string,
+) (bus.Streamer, bool) {
 	if d.streamer == nil {
 		return nil, false
 	}
@@ -106,18 +151,35 @@ func (d configuredStreamingDelegate) GetStreamer(ctx context.Context, channel, c
 }
 
 type recordingStreamer struct {
-	updates   []string
-	finalized []string
-	canceled  int
+	updates            []string
+	finalized          []string
+	reasoningUpdates   []string
+	reasoningFinalized []string
+	events             []string
+	canceled           int
 }
 
 func (s *recordingStreamer) Update(ctx context.Context, content string) error {
 	s.updates = append(s.updates, content)
+	s.events = append(s.events, "content:"+content)
 	return nil
 }
 
 func (s *recordingStreamer) Finalize(ctx context.Context, content string) error {
 	s.finalized = append(s.finalized, content)
+	s.events = append(s.events, "final:"+content)
+	return nil
+}
+
+func (s *recordingStreamer) UpdateReasoning(ctx context.Context, content string) error {
+	s.reasoningUpdates = append(s.reasoningUpdates, content)
+	s.events = append(s.events, "reasoning:"+content)
+	return nil
+}
+
+func (s *recordingStreamer) FinalizeReasoning(ctx context.Context, content string) error {
+	s.reasoningFinalized = append(s.reasoningFinalized, content)
+	s.events = append(s.events, "reasoning-final:"+content)
 	return nil
 }
 
@@ -406,6 +468,52 @@ func TestConfiguredStreamingVisibleSendResponseFalseRetainsFinalizedStreamMarker
 	}
 	if streamer.clearMarkers != 0 {
 		t.Fatalf("clear markers = %d, want 0", streamer.clearMarkers)
+	}
+}
+
+func TestConfiguredStreamingStreamsPicoReasoningBeforeAnswerContent(t *testing.T) {
+	cfg := newConfiguredStreamingTestConfig(t, true, true, nil)
+	streamer := &recordingStreamer{}
+	msgBus := bus.NewMessageBus()
+	msgBus.SetStreamDelegate(configuredStreamingDelegate{streamer: streamer})
+	provider := &configuredStreamingProvider{
+		eventPlan: []configuredStreamingEventCall{{
+			chunks: []providers.StreamChunk{
+				{ReasoningContent: "thinking"},
+				{ReasoningContent: "thinking more"},
+				{Content: "answer"},
+			},
+			response: &providers.LLMResponse{
+				Content:          "answer",
+				ReasoningContent: "thinking more",
+			},
+		}},
+	}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	got := runConfiguredStreamingTurn(t, al, "pico")
+	if got != "answer" {
+		t.Fatalf("response = %q, want answer", got)
+	}
+	if provider.eventCalls != 1 {
+		t.Fatalf("ChatStreamEvents calls = %d, want 1", provider.eventCalls)
+	}
+	if len(streamer.reasoningUpdates) != 2 {
+		t.Fatalf("reasoning updates = %v, want two streamed updates", streamer.reasoningUpdates)
+	}
+	if len(streamer.updates) != 1 || streamer.updates[0] != "answer" {
+		t.Fatalf("content updates = %v, want [answer]", streamer.updates)
+	}
+	if len(streamer.events) < 3 ||
+		streamer.events[0] != "reasoning:thinking" ||
+		streamer.events[1] != "reasoning:thinking more" ||
+		streamer.events[2] != "content:answer" {
+		t.Fatalf("stream event order = %v, want reasoning before answer content", streamer.events)
+	}
+	select {
+	case outbound := <-msgBus.OutboundChan():
+		t.Fatalf("expected streamed reasoning to avoid a later thought outbound, got %+v", outbound)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

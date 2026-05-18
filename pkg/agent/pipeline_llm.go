@@ -465,10 +465,20 @@ func (p *Pipeline) CallLLM(
 		// Pico tool-call turns publish their reasoning/content/tool summary as a
 		// structured sequence after the tool-call payload is normalized below.
 	} else if ts.channel == "pico" {
-		// Publish pico thoughts before the turn context is canceled at return time.
-		// The async variant can race with turn teardown and intermittently drop the
-		// thought message in CI even though the LLM produced reasoning content.
-		al.publishPicoReasoning(turnCtx, reasoningContent, ts.chatID)
+		if exec.streamingPublisher != nil && exec.streamingPublisher.ReasoningPublished() {
+			if err := exec.streamingPublisher.FinalizeReasoning(turnCtx, reasoningContent); err != nil {
+				logger.WarnCF("agent", "Failed to finalize streamed pico reasoning", map[string]any{
+					"channel": ts.channel,
+					"chat_id": ts.chatID,
+					"error":   err.Error(),
+				})
+			}
+		} else {
+			// Publish pico thoughts before the turn context is canceled at return time.
+			// The async variant can race with turn teardown and intermittently drop the
+			// thought message in CI even though the LLM produced reasoning content.
+			al.publishPicoReasoning(turnCtx, reasoningContent, ts.chatID, ts.sessionKey)
+		}
 	} else {
 		go al.handleReasoning(
 			turnCtx,

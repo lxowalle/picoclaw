@@ -35,6 +35,11 @@ type LLMResponse struct {
 	ReasoningDetails []ReasoningDetail `json:"reasoning_details"`
 }
 
+type StreamChunk struct {
+	Content          string
+	ReasoningContent string
+}
+
 type ReasoningDetail struct {
 	Format string `json:"format"`
 	Index  int    `json:"index"`

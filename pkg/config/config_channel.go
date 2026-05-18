@@ -241,6 +241,7 @@ func (b Channel) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		raw = preserveExplicitDisabledStreaming(raw, b.Settings)
 		settings = raw
 	} else {
 		settings = b.Settings
@@ -252,6 +253,36 @@ func (b Channel) MarshalJSON() ([]byte, error) {
 	// Use type alias to bypass our custom MarshalJSON (infinite recursion)
 	type Alias Channel
 	return json.Marshal((*Alias)(&out))
+}
+
+func preserveExplicitDisabledStreaming(settings, original RawNode) RawNode {
+	if len(original) == 0 || len(settings) == 0 {
+		return settings
+	}
+
+	var originalMap map[string]any
+	if err := json.Unmarshal(original, &originalMap); err != nil {
+		return settings
+	}
+	originalStreaming, ok := originalMap["streaming"].(map[string]any)
+	if !ok || originalStreaming["enabled"] != false {
+		return settings
+	}
+
+	var settingsMap map[string]any
+	if err := json.Unmarshal(settings, &settingsMap); err != nil {
+		return settings
+	}
+	if _, exists := settingsMap["streaming"]; exists {
+		return settings
+	}
+	settingsMap["streaming"] = map[string]any{"enabled": false}
+
+	data, err := json.Marshal(settingsMap)
+	if err != nil {
+		return settings
+	}
+	return data
 }
 
 // MarshalYAML implements yaml.ValueMarshaler for Channel.

@@ -115,6 +115,28 @@ func (p *GeminiProvider) ChatStream(
 	options map[string]any,
 	onChunk func(accumulated string),
 ) (*LLMResponse, error) {
+	return p.ChatStreamEvents(
+		ctx,
+		messages,
+		tools,
+		model,
+		options,
+		func(chunk StreamChunk) {
+			if onChunk != nil && strings.TrimSpace(chunk.Content) != "" {
+				onChunk(chunk.Content)
+			}
+		},
+	)
+}
+
+func (p *GeminiProvider) ChatStreamEvents(
+	ctx context.Context,
+	messages []Message,
+	tools []ToolDefinition,
+	model string,
+	options map[string]any,
+	onChunk func(StreamChunk),
+) (*LLMResponse, error) {
 	if p.apiBase == "" {
 		return nil, fmt.Errorf("API base not configured")
 	}
@@ -458,7 +480,7 @@ func parseGeminiResponse(resp *geminiGenerateContentResponse) *LLMResponse {
 func parseGeminiStreamResponse(
 	ctx context.Context,
 	reader io.Reader,
-	onChunk func(accumulated string),
+	onChunk func(StreamChunk),
 ) (*LLMResponse, error) {
 	var contentBuilder strings.Builder
 	var reasoningBuilder strings.Builder
@@ -498,10 +520,13 @@ func parseGeminiStreamResponse(
 				if part.Text != "" {
 					if part.Thought {
 						reasoningBuilder.WriteString(part.Text)
+						if onChunk != nil {
+							onChunk(StreamChunk{ReasoningContent: reasoningBuilder.String()})
+						}
 					} else {
 						contentBuilder.WriteString(part.Text)
 						if onChunk != nil {
-							onChunk(contentBuilder.String())
+							onChunk(StreamChunk{Content: contentBuilder.String()})
 						}
 					}
 				}
