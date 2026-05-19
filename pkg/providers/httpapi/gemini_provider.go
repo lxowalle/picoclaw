@@ -170,7 +170,10 @@ func (p *GeminiProvider) ChatStreamEvents(
 		return nil, common.HandleErrorResponse(resp, p.apiBase)
 	}
 
-	return parseGeminiStreamResponse(ctx, withGeminiStreamingReadIdleTimeout(resp.Body, geminiDefaultStreamingReadIdleLimit), onChunk)
+	return parseGeminiStreamResponse(ctx,
+		withGeminiStreamingReadIdleTimeout(resp.Body,
+			geminiDefaultStreamingReadIdleLimit),
+		onChunk)
 }
 
 func withGeminiStreamingReadIdleTimeout(body io.ReadCloser, timeout time.Duration) io.ReadCloser {

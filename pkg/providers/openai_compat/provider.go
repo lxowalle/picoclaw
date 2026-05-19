@@ -46,8 +46,10 @@ type Provider struct {
 
 type Option func(*Provider)
 
-const defaultRequestTimeout = common.DefaultRequestTimeout
-const defaultStreamingReadIdleTimeout = 5 * time.Minute
+const (
+	defaultRequestTimeout           = common.DefaultRequestTimeout
+	defaultStreamingReadIdleTimeout = 5 * time.Minute
+)
 
 var stripModelPrefixProviders = map[string]struct{}{
 	"litellm":     {},
