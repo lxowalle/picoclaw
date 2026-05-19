@@ -47,6 +47,7 @@ type Provider struct {
 type Option func(*Provider)
 
 const defaultRequestTimeout = common.DefaultRequestTimeout
+const defaultStreamingReadIdleTimeout = 5 * time.Minute
 
 var stripModelPrefixProviders = map[string]struct{}{
 	"litellm":     {},
@@ -445,7 +446,40 @@ func (p *Provider) ChatStreamEvents(
 		return nil, common.HandleErrorResponse(resp, p.apiBase)
 	}
 
-	return parseStreamResponse(ctx, resp.Body, onChunk)
+	return parseStreamResponse(ctx, withStreamingReadIdleTimeout(resp.Body, defaultStreamingReadIdleTimeout), onChunk)
+}
+
+func withStreamingReadIdleTimeout(body io.ReadCloser, timeout time.Duration) io.ReadCloser {
+	if body == nil || timeout <= 0 {
+		return body
+	}
+	return &streamingReadIdleTimeoutBody{
+		body:    body,
+		timeout: timeout,
+	}
+}
+
+type streamingReadIdleTimeoutBody struct {
+	body    io.ReadCloser
+	timeout time.Duration
+}
+
+func (b *streamingReadIdleTimeoutBody) Read(p []byte) (int, error) {
+	timedOut := make(chan struct{})
+	timer := time.AfterFunc(b.timeout, func() {
+		close(timedOut)
+		_ = b.body.Close()
+	})
+	n, err := b.body.Read(p)
+	if !timer.Stop() {
+		<-timedOut
+		return n, fmt.Errorf("stream idle timeout after %s", b.timeout)
+	}
+	return n, err
+}
+
+func (b *streamingReadIdleTimeoutBody) Close() error {
+	return b.body.Close()
 }
 
 // parseStreamResponse parses an OpenAI-compatible SSE stream.

@@ -126,6 +126,22 @@ func (m *mockStreamer) FinalizeWithContext(ctx context.Context, content string, 
 
 func (m *mockStreamer) Cancel(context.Context) {}
 
+type mockReasoningStreamer struct {
+	mockStreamer
+	reasoningUpdates []string
+	reasoningFinal   string
+}
+
+func (m *mockReasoningStreamer) UpdateReasoning(_ context.Context, content string) error {
+	m.reasoningUpdates = append(m.reasoningUpdates, content)
+	return nil
+}
+
+func (m *mockReasoningStreamer) FinalizeReasoning(_ context.Context, content string) error {
+	m.reasoningFinal = content
+	return nil
+}
+
 type mockStreamingChannel struct {
 	mockMessageEditor
 	streamer        Streamer
@@ -1989,6 +2005,36 @@ func TestGetStreamer_PreservesContextUsageStreamer(t *testing.T) {
 	}
 	if _, ok := m.streamActive.Load("test:123"); !ok {
 		t.Fatal("expected streamActive marker to be recorded after finalize with context")
+	}
+}
+
+func TestGetStreamer_PreservesReasoningStreamer(t *testing.T) {
+	m := newTestManager()
+	inner := &mockReasoningStreamer{}
+	ch := &mockStreamingChannel{
+		streamer: inner,
+	}
+	m.channels["test"] = ch
+
+	streamer, ok := m.GetStreamer(context.Background(), "test", "123", "")
+	if !ok {
+		t.Fatal("expected streamer to be available")
+	}
+	reasoningStreamer, ok := streamer.(bus.ReasoningStreamer)
+	if !ok {
+		t.Fatal("manager-wrapped streamer should preserve ReasoningStreamer")
+	}
+	if err := reasoningStreamer.UpdateReasoning(context.Background(), "thinking"); err != nil {
+		t.Fatalf("UpdateReasoning() error = %v", err)
+	}
+	if err := reasoningStreamer.FinalizeReasoning(context.Background(), "final thought"); err != nil {
+		t.Fatalf("FinalizeReasoning() error = %v", err)
+	}
+	if got := inner.reasoningUpdates; len(got) != 1 || got[0] != "thinking" {
+		t.Fatalf("reasoning updates = %v, want [thinking]", got)
+	}
+	if inner.reasoningFinal != "final thought" {
+		t.Fatalf("reasoning final = %q, want final thought", inner.reasoningFinal)
 	}
 }
 

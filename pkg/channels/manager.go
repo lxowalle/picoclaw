@@ -680,6 +680,20 @@ func (s *finalizeHookStreamer) FinalizeWithContext(ctx context.Context, content 
 	return nil
 }
 
+func (s *finalizeHookStreamer) UpdateReasoning(ctx context.Context, content string) error {
+	if streamer, ok := s.Streamer.(bus.ReasoningStreamer); ok {
+		return streamer.UpdateReasoning(ctx, content)
+	}
+	return nil
+}
+
+func (s *finalizeHookStreamer) FinalizeReasoning(ctx context.Context, content string) error {
+	if streamer, ok := s.Streamer.(bus.ReasoningStreamer); ok {
+		return streamer.FinalizeReasoning(ctx, content)
+	}
+	return nil
+}
+
 func (s *finalizeHookStreamer) runFinalizeHook(ctx context.Context, content string) {
 	if s.onFinalize != nil {
 		s.onFinalize(ctx, content)

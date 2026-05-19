@@ -3,10 +3,13 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestGeminiProvider_ChatSeparatesThoughtAndToolCall(t *testing.T) {
@@ -278,6 +281,40 @@ func TestGeminiProvider_ChatStreamEventsStreamsThoughtBeforeContent(t *testing.T
 		if events[i] != want[i] {
 			t.Fatalf("events = %#v, want %#v", events, want)
 		}
+	}
+}
+
+type geminiBlockingReadCloser struct {
+	closeOnce sync.Once
+	closed    chan struct{}
+}
+
+func newGeminiBlockingReadCloser() *geminiBlockingReadCloser {
+	return &geminiBlockingReadCloser{closed: make(chan struct{})}
+}
+
+func (r *geminiBlockingReadCloser) Read([]byte) (int, error) {
+	<-r.closed
+	return 0, io.ErrClosedPipe
+}
+
+func (r *geminiBlockingReadCloser) Close() error {
+	r.closeOnce.Do(func() {
+		close(r.closed)
+	})
+	return nil
+}
+
+func TestGeminiStreamingReadIdleTimeoutClosesStalledBody(t *testing.T) {
+	body := newGeminiBlockingReadCloser()
+	wrapped := withGeminiStreamingReadIdleTimeout(body, 10*time.Millisecond)
+
+	_, err := wrapped.Read(make([]byte, 1))
+	if err == nil {
+		t.Fatal("expected stalled stream read to return an error")
+	}
+	if !strings.Contains(err.Error(), "gemini stream idle timeout") {
+		t.Fatalf("error = %v, want gemini stream idle timeout", err)
 	}
 }
 

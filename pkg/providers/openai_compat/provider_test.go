@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1508,6 +1509,40 @@ func (r *errAfterDataReadCloser) Read(p []byte) (int, error) {
 
 func (r *errAfterDataReadCloser) Close() error {
 	return nil
+}
+
+type blockingReadCloser struct {
+	closeOnce sync.Once
+	closed    chan struct{}
+}
+
+func newBlockingReadCloser() *blockingReadCloser {
+	return &blockingReadCloser{closed: make(chan struct{})}
+}
+
+func (r *blockingReadCloser) Read([]byte) (int, error) {
+	<-r.closed
+	return 0, io.ErrClosedPipe
+}
+
+func (r *blockingReadCloser) Close() error {
+	r.closeOnce.Do(func() {
+		close(r.closed)
+	})
+	return nil
+}
+
+func TestStreamingReadIdleTimeoutClosesStalledBody(t *testing.T) {
+	body := newBlockingReadCloser()
+	wrapped := withStreamingReadIdleTimeout(body, 10*time.Millisecond)
+
+	_, err := wrapped.Read(make([]byte, 1))
+	if err == nil {
+		t.Fatal("expected stalled stream read to return an error")
+	}
+	if !strings.Contains(err.Error(), "stream idle timeout") {
+		t.Fatalf("error = %v, want stream idle timeout", err)
+	}
 }
 
 func TestProvider_FunctionalOptionMaxTokensField(t *testing.T) {
